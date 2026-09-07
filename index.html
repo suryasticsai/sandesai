@@ -6,13 +6,11 @@
     <title>Sandesai · AI Messenger</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <!-- jQuery (required for parallax.js) -->
+    <!-- jQuery + Parallax + PeerJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous">
     </script>
-    <!-- Parallax.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous">
     </script>
-    <!-- PeerJS for WebRTC -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js">
     </script>
     <link rel="stylesheet" href="style.css" />
@@ -169,7 +167,7 @@
             <div class="profile-time" id="profileTime"><i class="far fa-clock"></i> Last active: 12:30</div>
         </div>
 
-        <!-- ===== REGISTRATION FORM ===== -->
+        <!-- ===== REGISTRATION FORM (no +91) ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
                 <div class="reg-header">
@@ -187,7 +185,7 @@
                     </div>
                     <div class="reg-field">
                         <label>Phone Number</label>
-                        <input type="tel" id="regPhone" placeholder="+91 9876543210" />
+                        <input type="tel" id="regPhone" placeholder="10-digit number" maxlength="10" />
                     </div>
                     <div class="reg-field">
                         <label>OTP</label>
@@ -253,6 +251,8 @@
                     <button class="dial-delete" id="dialDelete"><i class="fas fa-delete-left"></i></button>
                     <button class="dial-call" id="dialCall"><i class="fas fa-phone"></i></button>
                 </div>
+                <!-- Save Contact button (appears after dialing) -->
+                <button id="saveContactFromDialer" style="display:none;margin-top:10px;width:100%;padding:0.5rem;border-radius:40px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;cursor:pointer;font-size:0.8rem;"><i class="fas fa-user-plus"></i> Save Contact</button>
             </div>
         </div>
 
@@ -356,6 +356,7 @@
         #toast { position:fixed; bottom:calc(28px + env(safe-area-inset-bottom,0px)); left:50%; transform:translateX(-50%) translateY(20px); background:rgba(18,16,36,0.95); border:1px solid rgba(255,255,255,0.06); color:#eef0f5; padding:0.65rem 1.3rem; border-radius:40px; font-size:0.83rem; opacity:0; pointer-events:none; transition:opacity .25s ease,transform .25s ease; z-index:6000; max-width:88%; text-align:center; backdrop-filter:blur(12px); }
         #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
         .fab-button.hidden { display:none !important; }
+        .contact-saved-badge { background:#2fd992; color:#04140c; font-size:0.6rem; padding:0.1rem 0.4rem; border-radius:10px; margin-left:0.3rem; }
     </style>
 
     <script src="script.js"></script>
