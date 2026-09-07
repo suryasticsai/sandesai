@@ -6,9 +6,220 @@
     <title>Sandesai · AI Messenger</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js">
+
+    <!-- jQuery (required for parallax.js) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous">
     </script>
-    <link rel="stylesheet" href="style.css" />
+    <!-- Parallax.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous">
+    </script>
+
+    <style>
+        /* ─── Your full CSS (same as before, unchanged) ─── */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Inter',sans-serif; background:#07050e; color:#f0f2f7; height:100dvh; overflow:hidden; display:flex; align-items:center; justify-content:center; user-select:none; padding:0; margin:0; }
+        .parallax-scene { position:fixed; top:0; left:0; width:100%; height:100%; z-index:0; overflow:hidden; }
+        .bg-layer { position:absolute; top:-10%; left:-10%; width:120%; height:120%; background-size:cover; background-position:center; opacity:0.6; will-change:transform; }
+        .layer-1 { background-image:url('https://images.unsplash.com/photo-1541701494587-cb58502866ab?w=1920&q=80'); opacity:0.25; mix-blend-mode:normal; }
+        .layer-2 { background-image:url('https://images.unsplash.com/photo-1614850715649-1d0106293bd1?w=1920&q=80'); opacity:0.20; mix-blend-mode:screen; }
+        .layer-3 { background-image:url('https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?w=1920&q=80'); opacity:0.15; mix-blend-mode:soft-light; }
+        .layer-4 { background-image:radial-gradient(circle at 30% 40%, #7c3aed, transparent 70%), radial-gradient(circle at 70% 80%, #00d4ff, transparent 60%); opacity:0.35; mix-blend-mode:overlay; }
+        .app { position:relative; z-index:1; width:100%; max-width:500px; height:100dvh; max-height:100dvh; background:rgba(12,10,28,0.7); backdrop-filter:blur(28px) saturate(1.6); -webkit-backdrop-filter:blur(28px) saturate(1.6); border-radius:0; box-shadow:0 0 80px rgba(0,0,0,0.8); overflow:hidden; display:flex; flex-direction:column; }
+        @media (min-width:640px){ .app { border-radius:32px; height:90dvh; max-height:900px; border:1px solid rgba(255,255,255,0.06); } }
+        .view { position:absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; will-change:transform; backface-visibility:hidden; background:transparent; }
+        .list-view { z-index:2; transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+        .list-view.shrink { transform:scale(0.92); }
+        .chat-view { z-index:3; transform:translateX(100%); background:rgba(12,10,28,0.94); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); transition:transform 0.45s cubic-bezier(0.34,1.56,0.64,1); border-radius:0; }
+        .chat-view.open { transform:translateX(0); }
+        .list-header { padding:14px 16px 10px 20px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.04); flex-shrink:0; background:rgba(0,0,0,0.2); min-height:64px; }
+        .logo { display:flex; align-items:center; gap:10px; font-weight:700; font-size:20px; }
+        .logo-img { width:42px; height:42px; border-radius:50%; object-fit:cover; border:0px solid rgba(255,255,255,0.1); }
+        .logo span { background:linear-gradient(135deg, #a78bfa, #6ee7ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .actions { display:flex; gap:4px; }
+        .actions button { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:38px; height:38px; border-radius:12px; font-size:16px; cursor:pointer; transition:all 0.3s; }
+        .actions button:hover { background:rgba(139,92,246,0.18); color:#c4b5fd; }
+        .ai-btn { background:linear-gradient(135deg, rgba(139,92,246,0.25), rgba(110,231,255,0.12)) !important; color:#a78bfa !important; border:1px solid rgba(139,92,246,0.15) !important; }
+        .search-wrap { padding:10px 14px 6px 18px; position:relative; flex-shrink:0; }
+        .search-wrap input { width:100%; padding:10px 14px 10px 42px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.04); color:#eef0f5; font-size:14px; outline:none; font-family:'Inter',sans-serif; }
+        .search-wrap input::placeholder { color:#5a6885; }
+        .search-wrap input:focus { border-color:rgba(139,92,246,0.35); background:rgba(255,255,255,0.07); }
+        .search-wrap i { position:absolute; left:32px; top:50%; transform:translateY(-50%); color:#5a6885; font-size:15px; }
+        .list-content { flex:1; overflow:hidden; position:relative; }
+        .content-panel { position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:4px 0 8px 0; }
+        .content-panel::-webkit-scrollbar { width:4px; }
+        .content-panel::-webkit-scrollbar-thumb { background:rgba(139,92,246,0.3); border-radius:8px; }
+        .chat-list, .call-list { padding:4px 8px 4px 12px; }
+        .chat-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:16px; cursor:pointer; transition:all 0.2s; margin-bottom:2px; }
+        .chat-item:active { transform:scale(0.96); }
+        .chat-item:hover { background:rgba(255,255,255,0.04); }
+        .avatar { width:48px; height:48px; border-radius:16px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:17px; color:#fff; position:relative; box-shadow:0 4px 16px rgba(0,0,0,0.3); }
+        .avatar img { width:100%; height:100%; border-radius:16px; object-fit:cover; }
+        .avatar .status-dot { position:absolute; bottom:-2px; right:-2px; width:13px; height:13px; border-radius:50%; border:2px solid rgba(12,10,28,0.9); background:#22c55e; }
+        .avatar .status-dot.offline { background:#64748b; }
+        .info { flex:1; min-width:0; }
+        .info .name { font-weight:600; font-size:14px; color:#f0f2f7; display:flex; align-items:center; gap:6px; }
+        .badge-ai { font-size:7px; background:linear-gradient(135deg,#8b5cf6,#6ee7ff); padding:2px 6px; border-radius:12px; color:#0b0a12; font-weight:800; text-transform:uppercase; }
+        .msg-preview { font-size:13px; color:#7a89a8; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+        .meta { text-align:right; flex-shrink:0; }
+        .meta .time { font-size:11px; color:#5a6885; }
+        .meta .unread { background:#8b5cf6; color:#fff; font-size:10px; font-weight:700; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-top:4px; margin-left:auto; box-shadow:0 0 16px rgba(139,92,246,0.3); }
+        .call-item { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:16px; margin-bottom:2px; }
+        .call-item .call-icon { width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; background:rgba(255,255,255,0.04); color:#a5b3d0; }
+        .call-item .call-icon.missed { color:#ef4444; background:rgba(239,68,68,0.12); }
+        .call-item .call-icon.incoming { color:#22c55e; background:rgba(34,197,94,0.12); }
+        .call-item .call-icon.outgoing { color:#3b82f6; background:rgba(59,130,246,0.12); }
+        .call-item .call-info { flex:1; }
+        .call-item .call-info .call-name { font-weight:500; font-size:14px; color:#f0f2f7; }
+        .call-item .call-info .call-detail { font-size:12px; color:#7a89a8; margin-top:1px; }
+        .call-item .call-time { font-size:11px; color:#5a6885; }
+        .list-footer { border-top:1px solid rgba(255,255,255,0.04); display:flex; padding:6px 8px 10px 8px; gap:4px; background:rgba(0,0,0,0.25); flex-shrink:0; backdrop-filter:blur(4px); }
+        .list-footer .tab { flex:1; text-align:center; padding:8px 0; border-radius:14px; font-size:12px; font-weight:500; color:#5a6885; transition:all 0.25s; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px; }
+        .list-footer .tab i { font-size:18px; }
+        .list-footer .tab.active { background:rgba(139,92,246,0.15); color:#c4b5fd; }
+        .list-footer .tab:hover { background:rgba(255,255,255,0.04); }
+        .chat-header { padding:10px 12px 10px 8px; border-bottom:1px solid rgba(255,255,255,0.04); display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.15); flex-shrink:0; min-height:56px; }
+        .back-btn { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:36px; height:36px; border-radius:12px; font-size:17px; cursor:pointer; flex-shrink:0; }
+        .back-btn:active { transform:scale(0.9); }
+        .left { display:flex; align-items:center; gap:10px; flex:1; min-width:0; }
+        .avatar-sm { width:38px; height:38px; border-radius:12px; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; color:#fff; box-shadow:0 4px 16px rgba(0,0,0,0.3); }
+        .avatar-sm img { width:100%; height:100%; border-radius:12px; object-fit:cover; }
+        .chat-name { font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .chat-name small { font-weight:400; font-size:10px; color:#5a6885; display:block; margin-top:1px; }
+        .right { display:flex; gap:2px; flex-shrink:0; }
+        .right button { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:34px; height:34px; border-radius:10px; font-size:14px; cursor:pointer; }
+        .right button:hover { background:rgba(139,92,246,0.12); color:#c4b5fd; }
+        .call-btn { color:#6ee7ff !important; }
+        .video-btn { color:#a78bfa !important; }
+        .ai-assist-btn { background:linear-gradient(135deg, rgba(139,92,246,0.2), rgba(110,231,255,0.1)) !important; color:#a78bfa !important; border:1px solid rgba(139,92,246,0.12) !important; }
+        .chat-messages { flex:1; overflow-y:auto; padding:12px 14px 8px 14px; display:flex; flex-direction:column; gap:4px; }
+        .chat-messages::-webkit-scrollbar { width:4px; }
+        .chat-messages::-webkit-scrollbar-thumb { background:rgba(139,92,246,0.2); border-radius:8px; }
+        .msg { max-width:85%; padding:8px 14px; border-radius:18px; font-size:14px; line-height:1.4; word-wrap:break-word; opacity:0; transform:translateY(12px) scale(0.96); animation:msgPop 0.3s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+        @keyframes msgPop { 0%{ opacity:0; transform:translateY(12px) scale(0.92); } 100%{ opacity:1; transform:translateY(0) scale(1); } }
+        .msg.sent { align-self:flex-end; background:linear-gradient(135deg,#7c3aed,#5b21b6); color:#fff; border-bottom-right-radius:4px; box-shadow:0 4px 16px rgba(139,92,246,0.2); }
+        .msg.received { align-self:flex-start; background:rgba(255,255,255,0.06); color:#eef0f5; border-bottom-left-radius:4px; border:1px solid rgba(255,255,255,0.04); }
+        .msg .time-tag { font-size:9px; opacity:0.5; margin-top:3px; display:block; text-align:right; }
+        .msg.sent .time-tag { opacity:0.7; }
+        .ai-suggestion { align-self:flex-start; background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.12); border-radius:16px; padding:6px 14px; font-size:12px; color:#c4b5fd; max-width:75%; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.3s; margin:2px 0 6px 16px; }
+        .ai-suggestion:hover { background:rgba(139,92,246,0.15); border-color:rgba(139,92,246,0.25); }
+        .ai-suggestion i { font-size:15px; color:#8b5cf6; }
+        .chat-input { padding:8px 12px 12px 12px; border-top:1px solid rgba(255,255,255,0.04); display:flex; align-items:center; gap:6px; background:rgba(0,0,0,0.1); flex-shrink:0; }
+        .chat-input input { flex:1; padding:10px 14px; border-radius:16px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.04); color:#eef0f5; font-size:14px; outline:none; font-family:'Inter',sans-serif; }
+        .chat-input input::placeholder { color:#5a6885; }
+        .chat-input input:focus { border-color:rgba(139,92,246,0.3); background:rgba(255,255,255,0.07); }
+        .input-actions { display:flex; gap:4px; }
+        .input-actions button { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:40px; height:40px; border-radius:14px; font-size:16px; cursor:pointer; }
+        .input-actions button:hover { background:rgba(139,92,246,0.12); color:#c4b5fd; }
+        .send-btn { background:linear-gradient(135deg,#7c3aed,#6d28d9) !important; color:#fff !important; box-shadow:0 4px 20px rgba(139,92,246,0.25) !important; }
+        .send-btn:active { transform:scale(0.92); }
+        .voice-btn { color:#6ee7ff !important; }
+        .profile-panel { position:absolute; right:0; top:0; width:84%; max-width:340px; height:100%; background:rgba(12,10,28,0.96); backdrop-filter:blur(32px); -webkit-backdrop-filter:blur(32px); border-left:1px solid rgba(255,255,255,0.05); transform:translateX(105%); transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1); padding:18px 14px 14px 14px; display:flex; flex-direction:column; z-index:10; box-shadow:-20px 0 60px rgba(0,0,0,0.5); overflow-y:auto; }
+        .profile-panel.open { transform:translateX(0); }
+        .close-profile { align-self:flex-end; background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:34px; height:34px; border-radius:10px; font-size:17px; cursor:pointer; }
+        .close-profile:hover { background:rgba(255,255,255,0.08); }
+        .profile-avatar { width:70px; height:70px; border-radius:20px; margin:0 auto 8px; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:700; color:#fff; box-shadow:0 8px 40px rgba(0,0,0,0.5); }
+        .profile-avatar img { width:100%; height:100%; border-radius:20px; object-fit:cover; }
+        .profile-name { text-align:center; font-size:18px; font-weight:700; }
+        .profile-phone { text-align:center; color:#7a89a8; font-size:12px; margin-top:1px; }
+        .profile-phone i { margin-right:6px; }
+        .settings-section { margin-top:12px; background:rgba(255,255,255,0.03); border-radius:16px; padding:12px 14px; border:1px solid rgba(255,255,255,0.04); flex:1; overflow-y:auto; }
+        .settings-header { font-size:13px; font-weight:600; color:#a78bfa; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+        .settings-header i { font-size:14px; }
+        .setting-item { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
+        .setting-item:last-child { border-bottom:none; }
+        .setting-item span { font-size:13px; color:#d0d8ec; display:flex; align-items:center; gap:8px; }
+        .setting-item span i { color:#7a89a8; font-size:14px; width:20px; }
+        .theme-options { display:flex; gap:6px; }
+        .theme-btn { width:30px; height:30px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:all 0.25s; font-size:14px; background:rgba(255,255,255,0.05); display:flex; align-items:center; justify-content:center; }
+        .theme-btn.active { border-color:#8b5cf6; box-shadow:0 0 16px rgba(139,92,246,0.3); }
+        .theme-btn:hover { transform:scale(1.1); }
+        .toggle-switch { position:relative; width:40px; height:22px; flex-shrink:0; }
+        .toggle-switch input { opacity:0; width:0; height:0; }
+        .toggle-slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#3a4868; transition:0.3s; border-radius:22px; }
+        .toggle-slider::before { content:""; position:absolute; height:16px; width:16px; left:3px; bottom:3px; background:#fff; transition:0.3s; border-radius:50%; }
+        .toggle-switch input:checked+.toggle-slider { background:#8b5cf6; }
+        .toggle-switch input:checked+.toggle-slider::before { transform:translateX(18px); }
+        .lang-select { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.06); border-radius:8px; color:#eef0f5; padding:4px 8px; font-size:12px; font-family:'Inter',sans-serif; outline:none; }
+        .lang-select option { background:#1a1832; }
+        .logout-btn { width:100%; margin-top:10px; padding:10px; border:none; border-radius:12px; background:rgba(239,68,68,0.15); color:#ef4444; font-weight:600; font-size:13px; cursor:pointer; font-family:'Inter',sans-serif; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.25s; }
+        .logout-btn:hover { background:rgba(239,68,68,0.25); }
+        .profile-time { margin-top:10px; text-align:center; color:#3a4868; font-size:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.04); }
+        .ai-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(8,6,20,0.8); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); z-index:20; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.35s ease; }
+        .ai-overlay.open { opacity:1; pointer-events:auto; }
+        .ai-card { max-width:380px; width:92%; background:rgba(18,16,36,0.9); border:1px solid rgba(255,255,255,0.06); border-radius:26px; padding:24px 20px; box-shadow:0 40px 80px rgba(0,0,0,0.7); transform:scale(0.92) translateY(16px); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+        .ai-overlay.open .ai-card { transform:scale(1) translateY(0); }
+        .ai-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
+        .ai-header h2 { font-size:19px; font-weight:700; display:flex; align-items:center; gap:10px; }
+        .ai-header h2 i { color:#8b5cf6; font-size:22px; }
+        .close-ai { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:32px; height:32px; border-radius:10px; font-size:16px; cursor:pointer; }
+        .ai-subtitle { color:#7a89a8; font-size:12px; margin-bottom:10px; }
+        .ai-features { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin:6px 0 14px; }
+        .feat { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.04); border-radius:12px; padding:10px 6px; text-align:center; transition:all 0.2s; cursor:pointer; }
+        .feat:hover { background:rgba(139,92,246,0.08); border-color:rgba(139,92,246,0.15); }
+        .feat i { font-size:20px; color:#a78bfa; display:block; margin-bottom:3px; }
+        .feat span { font-size:12px; font-weight:600; color:#d0d8ec; }
+        .feat small { display:block; font-size:9px; color:#5a6885; margin-top:1px; }
+        .ai-prompt { display:flex; gap:6px; }
+        .ai-prompt input { flex:1; padding:10px 12px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.04); color:#eef0f5; font-size:13px; outline:none; font-family:'Inter',sans-serif; }
+        .ai-prompt input::placeholder { color:#5a6885; }
+        .ai-prompt input:focus { border-color:rgba(139,92,246,0.3); }
+        .ai-prompt button { padding:10px 16px; border-radius:14px; border:none; background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; font-weight:700; cursor:pointer; font-size:13px; font-family:'Inter',sans-serif; }
+        .ai-prompt button:active { transform:scale(0.95); }
+        .ai-footer { margin-top:10px; font-size:10px; color:#3a4868; text-align:center; }
+        .ai-footer i { margin-right:4px; }
+        .fab-button { position:fixed; bottom:100px; right:20px; width:58px; height:58px; border-radius:50%; background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; font-size:26px; display:flex; align-items:center; justify-content:center; box-shadow:0 8px 32px rgba(139,92,246,0.4); cursor:grab; z-index:50; transition:transform 0.2s, box-shadow 0.2s; user-select:none; touch-action:none; border:2px solid rgba(255,255,255,0.1); }
+        .fab-button:active { cursor:grabbing; transform:scale(0.92); }
+        .fab-button:hover { transform:scale(1.05); box-shadow:0 8px 40px rgba(139,92,246,0.6); }
+        .fab-button i { pointer-events:none; }
+        .fab-button.hidden { display:none !important; }
+        .dialpad-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(8,6,20,0.75); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); z-index:40; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.35s ease; border-radius:inherit; }
+        .dialpad-overlay.open { opacity:1; pointer-events:auto; }
+        .dialpad { background:rgba(18,16,36,0.92); border-radius:32px; padding:24px 20px 20px 20px; width:92%; max-width:380px; border:1px solid rgba(255,255,255,0.06); box-shadow:0 40px 80px rgba(0,0,0,0.7); transform:scale(0.92) translateY(16px); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+        .dialpad-overlay.open .dialpad { transform:scale(1) translateY(0); }
+        .dialpad-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .dialpad-header span { font-size:18px; font-weight:600; color:#f0f2f7; }
+        .dialpad-close { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:32px; height:32px; border-radius:10px; font-size:16px; cursor:pointer; }
+        .dialpad-close:hover { background:rgba(255,255,255,0.08); }
+        .dialpad-display { background:rgba(255,255,255,0.04); border-radius:14px; padding:12px 16px; margin-bottom:16px; font-size:24px; font-weight:600; text-align:center; min-height:52px; color:#f0f2f7; letter-spacing:2px; border:1px solid rgba(255,255,255,0.04); }
+        .dialpad-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
+        .dial-btn { padding:14px 0; border:none; border-radius:16px; background:rgba(255,255,255,0.04); color:#f0f2f7; font-size:22px; font-weight:600; cursor:pointer; transition:all 0.2s; font-family:'Inter',sans-serif; border:1px solid rgba(255,255,255,0.04); }
+        .dial-btn:hover { background:rgba(139,92,246,0.15); border-color:rgba(139,92,246,0.15); }
+        .dial-btn:active { transform:scale(0.92); }
+        .dialpad-actions { display:flex; gap:12px; justify-content:center; }
+        .dial-delete { padding:12px 20px; border:none; border-radius:16px; background:rgba(255,255,255,0.04); color:#ef4444; font-size:18px; cursor:pointer; transition:all 0.2s; flex:1; }
+        .dial-delete:hover { background:rgba(239,68,68,0.12); }
+        .dial-call { padding:12px 20px; border:none; border-radius:16px; background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; font-size:18px; cursor:pointer; transition:all 0.2s; flex:2; font-weight:600; }
+        .dial-call:hover { transform:scale(1.02); box-shadow:0 4px 20px rgba(34,197,94,0.3); }
+        .dial-call:active { transform:scale(0.95); }
+        .status-badge { font-size:10px; display:inline-flex; align-items:center; gap:4px; background:rgba(255,255,255,0.06); padding:2px 8px 2px 6px; border-radius:20px; color:#7a89a8; margin-left:4px; border:1px solid rgba(255,255,255,0.04); transition:all 0.3s ease; }
+        .status-badge:hover { background:rgba(255,255,255,0.1); }
+        .status-dot-badge { width:8px; height:8px; border-radius:50%; display:inline-block; background:#64748b; transition:all 0.3s ease; }
+        .status-dot-badge.online { background:#22c55e; box-shadow:0 0 8px rgba(34,197,94,0.5); }
+        #statusText { font-weight:500; letter-spacing:0.3px; }
+        .registration-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(8,6,20,0.8); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); z-index:30; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.35s ease; border-radius:inherit; }
+        .registration-overlay.open { opacity:1; pointer-events:auto; }
+        .registration-form { background:rgba(18,16,36,0.92); border-radius:28px; padding:24px 20px 20px 20px; width:92%; max-width:380px; border:1px solid rgba(255,255,255,0.06); box-shadow:0 40px 80px rgba(0,0,0,0.7); transform:scale(0.92) translateY(16px); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+        .registration-overlay.open .registration-form { transform:scale(1) translateY(0); }
+        .reg-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+        .reg-header h3 { font-size:18px; font-weight:700; color:#f0f2f7; display:flex; align-items:center; gap:8px; }
+        .reg-header h3 i { color:#8b5cf6; }
+        .reg-close { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:32px; height:32px; border-radius:10px; font-size:16px; cursor:pointer; }
+        .reg-close:hover { background:rgba(255,255,255,0.08); }
+        .reg-body { display:flex; flex-direction:column; gap:12px; }
+        .reg-field label { font-size:12px; font-weight:500; color:#7a89a8; display:block; margin-bottom:4px; }
+        .reg-field input { width:100%; padding:10px 14px; border-radius:14px; border:1px solid rgba(255,255,255,0.06); background:rgba(255,255,255,0.04); color:#eef0f5; font-size:14px; outline:none; font-family:'Inter',sans-serif; }
+        .reg-field input:focus { border-color:rgba(139,92,246,0.3); }
+        .otp-group { display:flex; gap:8px; }
+        .otp-group input { flex:1; }
+        .otp-send { padding:10px 16px; border:none; border-radius:14px; background:rgba(139,92,246,0.15); color:#a78bfa; font-weight:600; font-size:12px; cursor:pointer; transition:all 0.25s; font-family:'Inter',sans-serif; white-space:nowrap; }
+        .otp-send:hover { background:rgba(139,92,246,0.25); }
+        .reg-submit { padding:12px; border:none; border-radius:16px; background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; font-weight:700; font-size:16px; cursor:pointer; transition:all 0.25s; font-family:'Inter',sans-serif; margin-top:4px; }
+        .reg-submit:hover { background:linear-gradient(135deg,#8b5cf6,#7c3aed); transform:scale(1.02); }
+        .reg-submit:active { transform:scale(0.96); }
+        .registration-link .reg-btn { background:rgba(139,92,246,0.12); border:none; color:#a78bfa; width:30px; height:30px; border-radius:50%; cursor:pointer; transition:all 0.25s; font-size:14px; }
+        .registration-link .reg-btn:hover { background:rgba(139,92,246,0.25); transform:scale(1.1); }
+        @media (max-width:480px){ .fab-button { width:52px; height:52px; font-size:22px; bottom:80px; right:14px; } .dialpad { padding:18px 14px 16px 14px; } .dial-btn { padding:12px 0; font-size:20px; } .dialpad-display { font-size:20px; min-height:44px; padding:10px 12px; } .profile-panel { width:88%; padding:14px 12px; } .settings-section { padding:10px 12px; } .logo-img { width:28px; height:28px; } }
+    </style>
 </head>
 <body>
 
@@ -29,7 +240,6 @@
                 <div class="logo" data-depth="0.15">
                     <img src="sandesai-logo.png" alt="Sandesai Logo" class="logo-img" />
                     <span>Sandesai</span>
-                    <!-- Status badge (appears after registration) -->
                     <span class="status-badge" id="statusBadge" style="display:none;">
                         <span class="status-dot-badge" id="statusDot"></span>
                         <span id="statusText">Offline</span>
@@ -99,20 +309,16 @@
             </div>
         </div>
 
-        <!-- ===== PROFILE PANEL (with Settings) ===== -->
+        <!-- ===== PROFILE PANEL ===== -->
         <div class="profile-panel" id="profilePanel">
             <button class="close-profile" id="closeProfileBtn"><i class="fas fa-xmark"></i></button>
             <div class="profile-avatar" id="profileAvatar">RK</div>
             <div class="profile-name" id="profileName">Ravi</div>
             <div class="profile-phone" id="profilePhone"><i class="fas fa-phone"></i> +91 9995554443</div>
 
-            <!-- Settings Section -->
             <div class="settings-section" id="settingsSection">
-                <div class="settings-header">
-                    <i class="fas fa-cog"></i> Preferences
-                </div>
+                <div class="settings-header"><i class="fas fa-cog"></i> Preferences</div>
 
-                <!-- Theme -->
                 <div class="setting-item">
                     <span><i class="fas fa-palette"></i> Theme</span>
                     <div class="theme-options">
@@ -122,7 +328,6 @@
                     </div>
                 </div>
 
-                <!-- FAB Visibility -->
                 <div class="setting-item">
                     <span><i class="fas fa-phone"></i> Show FAB</span>
                     <label class="toggle-switch">
@@ -131,7 +336,6 @@
                     </label>
                 </div>
 
-                <!-- Notifications -->
                 <div class="setting-item">
                     <span><i class="fas fa-bell"></i> Notifications</span>
                     <label class="toggle-switch">
@@ -140,7 +344,6 @@
                     </label>
                 </div>
 
-                <!-- Sound -->
                 <div class="setting-item">
                     <span><i class="fas fa-volume-up"></i> Sound</span>
                     <label class="toggle-switch">
@@ -149,13 +352,11 @@
                     </label>
                 </div>
 
-                <!-- Registration Link -->
                 <div class="setting-item registration-link">
                     <span><i class="fas fa-user-plus"></i> Registration</span>
                     <button class="reg-btn" id="openRegForm"><i class="fas fa-arrow-right"></i></button>
                 </div>
 
-                <!-- Language -->
                 <div class="setting-item">
                     <span><i class="fas fa-language"></i> Language</span>
                     <select class="lang-select">
@@ -171,7 +372,7 @@
             <div class="profile-time" id="profileTime"><i class="far fa-clock"></i> Last active: 12:30</div>
         </div>
 
-        <!-- ===== REGISTRATION FORM (overlay) ===== -->
+        <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
                 <div class="reg-header">
@@ -261,32 +462,51 @@
     </div>
 
     <!-- ============================================================ -->
-    <!--                        JAVASCRIPT                            -->
+    <!--                        JAVASCRIPT                             -->
     <!-- ============================================================ -->
     <script>
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 1. PARALLAX
+        // SILENCE CROSS-ORIGIN "Script error"
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        window.addEventListener('error', function(e) {
+            if (e.message === 'Script error.' && !e.filename) {
+                e.preventDefault();
+                return true;
+            }
+            console.warn('⚠️ Uncaught error:', e.message, e.filename, e.lineno);
+            return false;
+        });
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 1. PARALLAX (with jQuery check)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         (function initParallax() {
-            const scene = document.querySelector('.parallax-scene');
-            if (scene && typeof Parallax !== 'undefined') {
-                new Parallax(scene, {
-                    relativeInput: true,
-                    clipRelativeInput: true,
-                    calibrateX: true,
-                    calibrateY: true,
-                    invertX: false,
-                    invertY: false,
-                    limitX: 25,
-                    limitY: 25,
-                    scalarX: 10,
-                    scalarY: 10,
-                    frictionX: 0.1,
-                    frictionY: 0.1,
-                    originX: 0.5,
-                    originY: 0.5,
-                    precision: 1,
-                });
+            try {
+                const scene = document.querySelector('.parallax-scene');
+                if (scene && typeof Parallax !== 'undefined' && typeof jQuery !== 'undefined') {
+                    new Parallax(scene, {
+                        relativeInput: true,
+                        clipRelativeInput: true,
+                        calibrateX: true,
+                        calibrateY: true,
+                        invertX: false,
+                        invertY: false,
+                        limitX: 25,
+                        limitY: 25,
+                        scalarX: 10,
+                        scalarY: 10,
+                        frictionX: 0.1,
+                        frictionY: 0.1,
+                        originX: 0.5,
+                        originY: 0.5,
+                        precision: 1,
+                    });
+                    console.log('🌀 Parallax initialized');
+                } else {
+                    console.warn('⚠️ Parallax or jQuery missing, skipping effect');
+                }
+            } catch (err) {
+                console.warn('⚠️ Parallax init skipped:', err.message);
             }
         })();
 
@@ -390,7 +610,49 @@
                 { from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' },
                 { from: 'me', text: 'Almost done!', time: 'Yesterday' },
             ]
-        }, ];
+        },{
+    id: 8,
+    name: 'Peter',
+    img: 'https://i.pravatar.cc/150?img=11',
+    lastMsg: 'Location',
+    time: '09:12',
+    unread: 0,
+    online: true,
+    color: 'linear-gradient(135deg,#34d399,#10b981)',
+    messages: [
+        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+        { from: 'me', text: "On my way!", time: '09:12' },
+        { from: 'them', text: 'Location', time: '09:12' },
+    ]
+},{
+    id: 9,
+    name: 'Shiva',
+    img: 'https://i.pravatar.cc/150?img=12',
+    lastMsg: 'Location',
+    time: '09:12',
+    unread: 0,
+    online: true,
+    color: 'linear-gradient(135deg,#34d399,#10b981)',
+    messages: [
+        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+        { from: 'me', text: "On my way!", time: '09:12' },
+        { from: 'them', text: 'Location', time: '09:12' },
+    ]
+},{
+    id: 10,
+    name: 'Kevin',
+    img: 'https://i.pravatar.cc/150?img=13',
+    lastMsg: 'Location',
+    time: '09:12',
+    unread: 0,
+    online: true,
+    color: 'linear-gradient(135deg,#34d399,#10b981)',
+    messages: [
+        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+        { from: 'me', text: "On my way!", time: '09:12' },
+        { from: 'them', text: 'Location', time: '09:12' },
+    ]
+}, ];
 
         const myProfile = {
             name: 'Ravi Kant Gupta',
@@ -428,10 +690,7 @@
                         <span class="status-dot ${c.online ? '' : 'offline'}"></span>
                     </div>
                     <div class="info">
-                        <div class="name">
-                            ${c.name}
-                            ${c.id === 4 ? '<span class="badge-ai">AI</span>' : ''}
-                        </div>
+                        <div class="name">${c.name}${c.id === 4 ? '<span class="badge-ai">AI</span>' : ''}</div>
                         <div class="msg-preview">${c.lastMsg}</div>
                     </div>
                     <div class="meta">
@@ -604,69 +863,17 @@
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 6. FAB (draggable) - FIXED
+        // 6. FAB (draggable + click)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         function initFab() {
-            const fab = document.getElementById('fabButton');
-            if (!fab) return;
-
-            let isDragging = false;
-            let startX = 0,
-                startY = 0;
-            let hasMoved = false;
-
-            const onStart = (e) => {
-                const touch = e.touches ? e.touches[0] : e;
-                startX = touch.clientX;
-                startY = touch.clientY;
-                isDragging = true;
-                hasMoved = false;
-                fab.style.cursor = 'grabbing';
-                e.preventDefault();
-            };
-
-            const onMove = (e) => {
-                if (!isDragging) return;
-                const touch = e.touches ? e.touches[0] : e;
-                const dx = touch.clientX - startX;
-                const dy = touch.clientY - startY;
-                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-                    hasMoved = true;
-                }
-                // Move the FAB
-                const rect = fab.getBoundingClientRect();
-                let newX = rect.left + dx;
-                let newY = rect.top + dy;
-                const maxX = window.innerWidth - rect.width - 8;
-                const maxY = window.innerHeight - rect.height - 8;
-                newX = Math.max(8, Math.min(newX, maxX));
-                newY = Math.max(8, Math.min(newY, maxY));
-                fab.style.left = newX + 'px';
-                fab.style.top = newY + 'px';
-                fab.style.right = 'auto';
-                fab.style.bottom = 'auto';
-                // Update start for next move
-                startX = touch.clientX;
-                startY = touch.clientY;
-                e.preventDefault();
-            };
-
-            const onEnd = () => {
-                isDragging = false;
-                fab.style.cursor = 'grab';
-                // If it wasn't a drag, open dialpad
-                if (!hasMoved) {
-                    document.getElementById('dialpadOverlay').classList.add('open');
-                }
-            };
-
-            fab.addEventListener('mousedown', onStart);
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onEnd);
-            fab.addEventListener('touchstart', onStart, { passive: false });
-            document.addEventListener('touchmove', onMove, { passive: false });
-            document.addEventListener('touchend', onEnd);
-        }
+    const fab = document.getElementById('fabButton');
+    if (!fab) return;
+    
+    // Simple click handler – opens dialpad on every click/tap
+    fab.addEventListener('click', function(e) {
+        document.getElementById('dialpadOverlay').classList.add('open');
+    });
+}
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         // 7. DIALPAD
@@ -716,12 +923,11 @@
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 8. SETTINGS (Theme, Toggles, etc.)
+        // 8. SETTINGS
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         function initSettings() {
-            // Theme buttons
             document.querySelectorAll('.theme-btn').forEach(btn => {
-                btn.addEventListener('click', function () {
+                btn.addEventListener('click', function() {
                     document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
                     this.classList.add('active');
                     const theme = this.dataset.theme;
@@ -730,34 +936,30 @@
                 });
             });
 
-            // Load saved theme
             const savedTheme = localStorage.getItem('neonTheme') || 'dark';
             document.querySelectorAll('.theme-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.theme === savedTheme);
             });
             applyTheme(savedTheme);
 
-            // Toggle switches - save state
             document.querySelectorAll('.toggle-switch input').forEach(input => {
                 const key = input.id || 'toggle_' + Math.random();
                 const saved = localStorage.getItem(key);
                 if (saved !== null) input.checked = saved === 'true';
-                input.addEventListener('change', function () {
+                input.addEventListener('change', function() {
                     localStorage.setItem(this.id || 'toggle_' + Math.random(), this.checked);
                 });
             });
 
-            // Language select
             const langSelect = document.querySelector('.lang-select');
             const savedLang = localStorage.getItem('neonLang') || 'en';
             if (langSelect) {
                 langSelect.value = savedLang;
-                langSelect.addEventListener('change', function () {
+                langSelect.addEventListener('change', function() {
                     localStorage.setItem('neonLang', this.value);
                 });
             }
 
-            // Logout
             document.querySelector('.logout-btn')?.addEventListener('click', () => {
                 if (confirm('Logout? (Demo)')) {
                     alert('Logged out! (Demo)');
@@ -771,8 +973,6 @@
             const app = document.getElementById('app');
             const body = document.body;
             if (!app) return;
-
-            // Reset inline styles
             app.style.background = '';
             app.style.backdropFilter = '';
             body.style.background = '';
@@ -832,7 +1032,6 @@
                     el.style.border = '1px solid rgba(192, 132, 252, 0.3)';
                 });
             } else {
-                // Dark (default)
                 app.style.background = 'rgba(12, 10, 28, 0.7)';
                 app.style.backdropFilter = 'blur(28px) saturate(1.6)';
                 body.style.background = '#07050e';
@@ -871,7 +1070,6 @@
             const closeBtn = document.getElementById('regClose');
             const submitBtn = document.getElementById('regSubmit');
             const otpSend = document.getElementById('otpSend');
-
             if (!openBtn || !closeBtn || !submitBtn || !otpSend) return;
 
             openBtn.addEventListener('click', () => overlay.classList.add('open'));
@@ -882,10 +1080,7 @@
 
             otpSend.addEventListener('click', () => {
                 const phone = document.getElementById('regPhone').value.trim();
-                if (!phone) {
-                    alert('Please enter phone number first');
-                    return;
-                }
+                if (!phone) { alert('Please enter phone number first'); return; }
                 alert(`📱 OTP sent to ${phone} (Demo: 1234)`);
                 document.getElementById('regOtp').value = '1234';
             });
@@ -895,25 +1090,14 @@
                 const userid = document.getElementById('regUserid').value.trim();
                 const phone = document.getElementById('regPhone').value.trim();
                 const otp = document.getElementById('regOtp').value.trim();
-
-                if (!name || !userid || !phone || !otp) {
-                    alert('Please fill all fields');
-                    return;
-                }
-                if (otp !== '1234') {
-                    alert('Invalid OTP. Use 1234 (demo)');
-                    return;
-                }
-
+                if (!name || !userid || !phone || !otp) { alert('Please fill all fields'); return; }
+                if (otp !== '1234') { alert('Invalid OTP. Use 1234 (demo)'); return; }
                 const userData = { name, userid, phone, registered: true, status: 'offline' };
                 localStorage.setItem('neonUser', JSON.stringify(userData));
-
                 updateStatusBadge(userData);
                 overlay.classList.remove('open');
-
                 document.getElementById('profileName').textContent = name;
                 document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${phone}`;
-
                 alert('✅ Registration successful! Welcome, ' + name);
             });
         }
@@ -929,7 +1113,7 @@
                 dot.className = 'status-dot-badge ' + (status === 'online' ? 'online' : '');
                 text.textContent = status.charAt(0).toUpperCase() + status.slice(1);
                 badge.style.cursor = 'pointer';
-                badge.onclick = function (e) {
+                badge.onclick = function(e) {
                     e.stopPropagation();
                     const current = user.status || 'offline';
                     const newStatus = current === 'online' ? 'offline' : 'online';
@@ -951,15 +1135,13 @@
             const toggle = document.getElementById('fabToggle');
             const fab = document.getElementById('fabButton');
             if (!toggle || !fab) return;
-
             const saved = localStorage.getItem('fabVisible');
             if (saved !== null) {
                 const visible = saved === 'true';
                 toggle.checked = visible;
                 fab.classList.toggle('hidden', !visible);
             }
-
-            toggle.addEventListener('change', function () {
+            toggle.addEventListener('change', function() {
                 const visible = this.checked;
                 fab.classList.toggle('hidden', !visible);
                 localStorage.setItem('fabVisible', visible);
@@ -967,7 +1149,7 @@
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 11. TOGGLES FOR AI / PROFILE
+        // 11. TOGGLES
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         function toggleAiOverlay(open) {
             document.getElementById('aiOverlay').classList.toggle('open', open);
@@ -977,16 +1159,10 @@
         // 12. EVENT LISTENERS
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         function setupEventListeners() {
-            // Back button
             document.getElementById('backBtn').addEventListener('click', closeChat);
-
-            // Send button
             document.getElementById('sendBtn').addEventListener('click', sendMessage);
-            document.getElementById('msgInput').addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') sendMessage();
-            });
+            document.getElementById('msgInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
 
-            // AI overlays
             document.getElementById('openAiBtn').addEventListener('click', () => toggleAiOverlay(true));
             document.getElementById('openAiFromChat').addEventListener('click', () => toggleAiOverlay(true));
             document.getElementById('closeAiBtn').addEventListener('click', () => toggleAiOverlay(false));
@@ -994,7 +1170,6 @@
                 if (e.target === e.currentTarget) toggleAiOverlay(false);
             });
 
-            // AI prompt
             document.getElementById('aiPromptSend').addEventListener('click', () => {
                 const input = document.getElementById('aiPromptInput');
                 const val = input.value.trim();
@@ -1007,39 +1182,34 @@
                 if (e.key === 'Enter') document.getElementById('aiPromptSend').click();
             });
 
-            // Profile panel
             document.getElementById('openProfileBtn').addEventListener('click', () => toggleProfile(true));
             document.getElementById('closeProfileBtn').addEventListener('click', () => toggleProfile(false));
             document.getElementById('profilePanel').addEventListener('click', (e) => {
                 if (e.target === e.currentTarget) toggleProfile(false);
             });
 
-            // AI suggestion chip
             document.getElementById('aiSuggestion').addEventListener('click', () => {
                 const contact = contacts.find(c => c.id === activeContactId);
                 if (!contact) return;
-                const summary = `📊 This chat has ${contact.messages.length} messages. Last: "${contact.messages[contact.messages.length-1]?.text || 'none'}"`;
+                const summary =
+                    `📊 This chat has ${contact.messages.length} messages. Last: "${contact.messages[contact.messages.length-1]?.text || 'none'}"`;
                 const now = new Date();
-                const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+                const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2,
+                '0');
                 contact.messages.push({ from: 'them', text: '🤖 ' + summary, time: timeStr });
                 renderMessages();
                 renderChatList();
             });
 
-            // Voice / Call / Video placeholders
             document.querySelector('.voice-btn').addEventListener('click', () => alert('🎤 Voice (WebRTC ready)'));
             document.querySelector('.call-btn').addEventListener('click', () => alert('📞 Call (WebRTC ready)'));
             document.querySelector('.video-btn').addEventListener('click', () => alert('📹 Video (WebRTC ready)'));
 
-            // Footer tabs
             document.querySelectorAll('.list-footer .tab').forEach(tab => {
-                tab.addEventListener('click', function () {
-                    switchTab(this.dataset.tab);
-                });
+                tab.addEventListener('click', function() { switchTab(this.dataset.tab); });
             });
 
-            // Search filter
-            document.getElementById('searchInput').addEventListener('input', function () {
+            document.getElementById('searchInput').addEventListener('input', function() {
                 const q = this.value.toLowerCase();
                 if (currentTab === 'chat') {
                     document.querySelectorAll('.chat-item').forEach(item => {
@@ -1054,7 +1224,6 @@
                 }
             });
 
-            // Escape key handler
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape') {
                     if (document.getElementById('profilePanel').classList.contains('open')) toggleProfile(false);
@@ -1073,35 +1242,34 @@
         }
 
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // 13. INIT – call everything
+        // 13. INIT
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         (function init() {
-            // Load saved user status
-            const savedUser = localStorage.getItem('neonUser');
-            if (savedUser) {
-                try {
-                    const user = JSON.parse(savedUser);
-                    updateStatusBadge(user);
-                    document.getElementById('profileName').textContent = user.name || 'Ravi';
-                    document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone || '+91 9995554443'}`;
-                } catch (e) {}
+            try {
+                const savedUser = localStorage.getItem('neonUser');
+                if (savedUser) {
+                    try {
+                        const user = JSON.parse(savedUser);
+                        updateStatusBadge(user);
+                        document.getElementById('profileName').textContent = user.name || 'Ravi';
+                        document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone || '+91 9995554443'}`;
+                    } catch (e) {}
+                }
+
+                initFab();
+                initDialpad();
+                initSettings();
+                initRegistration();
+                initFabToggle();
+                renderChatList();
+                renderCallList();
+                setupEventListeners();
+
+                console.log('🚀 Sandesai · All systems ready');
+            } catch (err) {
+                console.error('❌ Init error:', err);
+                alert('Something went wrong. Check console for details.');
             }
-
-            // Init features
-            initFab();
-            initDialpad();
-            initSettings();
-            initRegistration();
-            initFabToggle();
-
-            // Render initial data
-            renderChatList();
-            renderCallList();
-
-            // Attach event listeners
-            setupEventListeners();
-
-            console.log('🚀 Sandesai · All systems ready');
         })();
     </script>
 
