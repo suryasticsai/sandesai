@@ -34,146 +34,157 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. DATA – contacts (hardcoded) + saved contacts
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const defaultContacts = [{
-    id: 1,
-    name: 'Rahul',
-    img: 'https://i.pravatar.cc/150?img=1',
-    lastMsg: "Let's meet in the canteen",
-    time: '10:32',
-    unread: 2,
-    online: true,
-    color: 'linear-gradient(135deg,#f472b6,#ec4899)',
-    messages: [
-        { from: 'them', text: 'Hey! Are you free for lunch?', time: '10:15' },
-        { from: 'me', text: 'Yes, where should we go?', time: '10:18' },
-        { from: 'them', text: "Let's meet in the canteen", time: '10:32' },
-    ]
-}, {
-    id: 2,
-    name: 'Priya',
-    img: 'https://i.pravatar.cc/150?img=5',
-    lastMsg: 'replied to your story',
-    time: '09:45',
-    unread: 0,
-    online: false,
-    color: 'linear-gradient(135deg,#60a5fa,#3b82f6)',
-    messages: [
-        { from: 'them', text: 'Loved your story! 😍', time: '09:40' },
-        { from: 'me', text: 'Thank you! 🙈', time: '09:42' },
-        { from: 'them', text: 'replied to your story', time: '09:45' },
-    ]
-}, {
-    id: 3,
-    name: 'Rupali',
-    img: 'https://i.pravatar.cc/150?img=10',
-    lastMsg: 'Location',
-    time: '09:12',
-    unread: 0,
-    online: true,
-    color: 'linear-gradient(135deg,#34d399,#10b981)',
-    messages: [
-        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-        { from: 'me', text: "On my way!", time: '09:12' },
-        { from: 'them', text: 'Location', time: '09:12' },
-    ]
-}, {
-    id: 4,
-    name: 'Tushar',
-    img: 'https://i.pravatar.cc/150?img=12',
-    lastMsg: 'What about movie tonight?',
-    time: 'Yesterday',
-    unread: 3,
-    online: true,
-    color: 'linear-gradient(135deg,#6c3bf5,#3b82f6)',
-    messages: [
-        { from: 'them', text: "Hey Tushar! Have to talk to you about tomorrow's plan. Let's catch up?", time: '02:00' },
-        { from: 'me', text: 'WASSUP BRO?', time: '02:10' },
-        { from: 'them', text: 'What about movie tonight?', time: 'Yesterday' },
-    ]
-}, {
-    id: 5,
-    name: 'Kunal',
-    img: 'https://i.pravatar.cc/150?img=20',
-    lastMsg: 'Check India Won the match.',
-    time: 'Yesterday',
-    unread: 0,
-    online: false,
-    color: 'linear-gradient(135deg,#fb923c,#f97316)',
-    messages: [
-        { from: 'them', text: 'Did you see the match?', time: 'Yesterday' },
-        { from: 'me', text: 'No, what happened?', time: 'Yesterday' },
-        { from: 'them', text: 'Check India Won the match.', time: 'Yesterday' },
-    ]
-}, {
-    id: 6,
-    name: 'Parul',
-    img: 'https://i.pravatar.cc/150?img=25',
-    lastMsg: 'uploading files',
-    time: 'Yesterday',
-    unread: 0,
-    online: true,
-    color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)',
-    messages: [
-        { from: 'them', text: "I'll send you the docs", time: 'Yesterday' },
-        { from: 'me', text: 'Sure, thanks!', time: 'Yesterday' },
-        { from: 'them', text: 'uploading files', time: 'Yesterday' },
-    ]
-}, {
-    id: 7,
-    name: 'Jasmine',
-    img: 'https://i.pravatar.cc/150?img=30',
-    lastMsg: 'Are you done with the notes?',
-    time: 'Yesterday',
-    unread: 1,
-    online: false,
-    color: 'linear-gradient(135deg,#f472b6,#db2777)',
-    messages: [
-        { from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' },
-        { from: 'me', text: 'Almost done!', time: 'Yesterday' },
-    ]
-}, {
-    id: 8,
-    name: 'Peter',
-    img: 'https://i.pravatar.cc/150?img=11',
-    lastMsg: 'Location',
-    time: '09:12',
-    unread: 0,
-    online: true,
-    color: 'linear-gradient(135deg,#34d399,#10b981)',
-    messages: [
-        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-        { from: 'me', text: "On my way!", time: '09:12' },
-        { from: 'them', text: 'Location', time: '09:12' },
-    ]
-}, {
-    id: 9,
-    name: 'Shiva',
-    img: 'https://i.pravatar.cc/150?img=12',
-    lastMsg: 'Location',
-    time: '09:12',
-    unread: 0,
-    online: true,
-    color: 'linear-gradient(135deg,#34d399,#10b981)',
-    messages: [
-        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-        { from: 'me', text: "On my way!", time: '09:12' },
-        { from: 'them', text: 'Location', time: '09:12' },
-    ]
-}, {
-    id: 10,
-    name: 'Kevin',
-    img: 'https://i.pravatar.cc/150?img=13',
-    lastMsg: 'Location',
-    time: '09:12',
-    unread: 0,
-    online: true,
-    color: 'linear-gradient(135deg,#34d399,#10b981)',
-    messages: [
-        { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-        { from: 'me', text: "On my way!", time: '09:12' },
-        { from: 'them', text: 'Location', time: '09:12' },
-    ]
-}, ];
+const defaultContacts = [
+    {
+        id: 1,
+        name: 'Rahul',
+        img: 'https://i.pravatar.cc/150?img=1',
+        lastMsg: "Let's meet in the canteen",
+        time: '10:32',
+        unread: 2,
+        online: true,
+        color: 'linear-gradient(135deg,#f472b6,#ec4899)',
+        messages: [
+            { from: 'them', text: 'Hey! Are you free for lunch?', time: '10:15' },
+            { from: 'me', text: 'Yes, where should we go?', time: '10:18' },
+            { from: 'them', text: "Let's meet in the canteen", time: '10:32' },
+        ]
+    },
+    {
+        id: 2,
+        name: 'Priya',
+        img: 'https://i.pravatar.cc/150?img=5',
+        lastMsg: 'replied to your story',
+        time: '09:45',
+        unread: 0,
+        online: false,
+        color: 'linear-gradient(135deg,#60a5fa,#3b82f6)',
+        messages: [
+            { from: 'them', text: 'Loved your story! 😍', time: '09:40' },
+            { from: 'me', text: 'Thank you! 🙈', time: '09:42' },
+            { from: 'them', text: 'replied to your story', time: '09:45' },
+        ]
+    },
+    {
+        id: 3,
+        name: 'Rupali',
+        img: 'https://i.pravatar.cc/150?img=10',
+        lastMsg: 'Location',
+        time: '09:12',
+        unread: 0,
+        online: true,
+        color: 'linear-gradient(135deg,#34d399,#10b981)',
+        messages: [
+            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+            { from: 'me', text: "On my way!", time: '09:12' },
+            { from: 'them', text: 'Location', time: '09:12' },
+        ]
+    },
+    {
+        id: 4,
+        name: 'Tushar',
+        img: 'https://i.pravatar.cc/150?img=12',
+        lastMsg: 'What about movie tonight?',
+        time: 'Yesterday',
+        unread: 3,
+        online: true,
+        color: 'linear-gradient(135deg,#6c3bf5,#3b82f6)',
+        messages: [
+            { from: 'them', text: "Hey Tushar! Have to talk to you about tomorrow's plan. Let's catch up?", time: '02:00' },
+            { from: 'me', text: 'WASSUP BRO?', time: '02:10' },
+            { from: 'them', text: 'What about movie tonight?', time: 'Yesterday' },
+        ]
+    },
+    {
+        id: 5,
+        name: 'Kunal',
+        img: 'https://i.pravatar.cc/150?img=20',
+        lastMsg: 'Check India Won the match.',
+        time: 'Yesterday',
+        unread: 0,
+        online: false,
+        color: 'linear-gradient(135deg,#fb923c,#f97316)',
+        messages: [
+            { from: 'them', text: 'Did you see the match?', time: 'Yesterday' },
+            { from: 'me', text: 'No, what happened?', time: 'Yesterday' },
+            { from: 'them', text: 'Check India Won the match.', time: 'Yesterday' },
+        ]
+    },
+    {
+        id: 6,
+        name: 'Parul',
+        img: 'https://i.pravatar.cc/150?img=25',
+        lastMsg: 'uploading files',
+        time: 'Yesterday',
+        unread: 0,
+        online: true,
+        color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)',
+        messages: [
+            { from: 'them', text: "I'll send you the docs", time: 'Yesterday' },
+            { from: 'me', text: 'Sure, thanks!', time: 'Yesterday' },
+            { from: 'them', text: 'uploading files', time: 'Yesterday' },
+        ]
+    },
+    {
+        id: 7,
+        name: 'Jasmine',
+        img: 'https://i.pravatar.cc/150?img=30',
+        lastMsg: 'Are you done with the notes?',
+        time: 'Yesterday',
+        unread: 1,
+        online: false,
+        color: 'linear-gradient(135deg,#f472b6,#db2777)',
+        messages: [
+            { from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' },
+            { from: 'me', text: 'Almost done!', time: 'Yesterday' },
+        ]
+    },
+    {
+        id: 8,
+        name: 'Peter',
+        img: 'https://i.pravatar.cc/150?img=11',
+        lastMsg: 'Location',
+        time: '09:12',
+        unread: 0,
+        online: true,
+        color: 'linear-gradient(135deg,#34d399,#10b981)',
+        messages: [
+            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+            { from: 'me', text: "On my way!", time: '09:12' },
+            { from: 'them', text: 'Location', time: '09:12' },
+        ]
+    },
+    {
+        id: 9,
+        name: 'Shiva',
+        img: 'https://i.pravatar.cc/150?img=12',
+        lastMsg: 'Location',
+        time: '09:12',
+        unread: 0,
+        online: true,
+        color: 'linear-gradient(135deg,#34d399,#10b981)',
+        messages: [
+            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+            { from: 'me', text: "On my way!", time: '09:12' },
+            { from: 'them', text: 'Location', time: '09:12' },
+        ]
+    },
+    {
+        id: 10,
+        name: 'Kevin',
+        img: 'https://i.pravatar.cc/150?img=13',
+        lastMsg: 'Location',
+        time: '09:12',
+        unread: 0,
+        online: true,
+        color: 'linear-gradient(135deg,#34d399,#10b981)',
+        messages: [
+            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
+            { from: 'me', text: "On my way!", time: '09:12' },
+            { from: 'them', text: 'Location', time: '09:12' },
+        ]
+    },
+];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SAVED CONTACTS (localStorage)
@@ -184,14 +195,13 @@ function getSavedContacts() {
 
 function saveContact(name, number) {
     const contacts = getSavedContacts();
-    // Check if number already exists
     if (contacts.find(c => c.number === number)) {
         showToast('Contact already saved');
         return false;
     }
     contacts.push({ name, number, id: Date.now() });
     localStorage.setItem('savedContacts', JSON.stringify(contacts));
-    renderChatList(); // refresh
+    renderChatList();
     showToast('✅ Contact saved: ' + name);
     return true;
 }
@@ -210,7 +220,6 @@ function deleteContact(number) {
 function getAllContacts() {
     const saved = getSavedContacts();
     const all = [...defaultContacts];
-    // Add saved contacts if not already in default (by name or number)
     saved.forEach(sc => {
         if (!all.find(c => c.name === sc.name || (c.img && c.img.includes(sc.number)))) {
             all.push({
@@ -232,7 +241,7 @@ function getAllContacts() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// RENDER FUNCTIONS (updated to use getAllContacts)
+// RENDER FUNCTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let activeContactId = 4;
 let currentTab = 'chat';
@@ -291,7 +300,6 @@ function renderMessages() {
     avatarEl.style.background = contact.color;
     avatarEl.innerHTML = `<img src="${contact.img}" alt="${contact.name}" />`;
 
-    // Update profile panel for contact (if opened from chat)
     document.getElementById('profileAvatar').style.background = contact.color;
     document.getElementById('profileAvatar').innerHTML = `<img src="${contact.img}" alt="${contact.name}" />`;
     document.getElementById('profileName').textContent = contact.name;
@@ -303,7 +311,7 @@ function renderMessages() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// NAVIGATION (unchanged)
+// NAVIGATION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function switchTab(tab) {
     currentTab = tab;
@@ -349,7 +357,7 @@ function closeChat() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PROFILE (loads from registration data)
+// PROFILE (loads from registration data – no `myProfile`)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openMyProfile() {
     const panel = document.getElementById('profilePanel');
@@ -362,25 +370,20 @@ function openMyProfile() {
             userName = user.name || 'User';
             userPhone = user.phone || '';
         } catch (e) {}
-    } else {
-        // fallback to PremCall number
-        const num = localStorage.getItem('premCallNumber');
-        if (num) userName = num;
-        userPhone = num || '';
     }
     // Also check PremCall number
     const premNum = localStorage.getItem('premCallNumber');
     if (premNum && !userPhone) userPhone = premNum;
 
-    document.getElementById('profileAvatar').style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
-    document.getElementById('profileAvatar').innerHTML = `<img src="${myProfile.img}" alt="${userName}" />`;
+    const avatarEl = document.getElementById('profileAvatar');
+    avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
+    avatarEl.innerHTML = `<span style="font-size:2.5rem;font-weight:700;color:#fff;">${userName.charAt(0).toUpperCase()}</span>`;
     document.getElementById('profileName').textContent = userName;
     document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
     document.getElementById('profileTime').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
 
-    // Also show saved contacts in a section under settings? We'll add a list.
+    // Show saved contacts
     const settingsSection = document.getElementById('settingsSection');
-    // Remove old contacts list if exists
     const oldList = document.getElementById('savedContactsList');
     if (oldList) oldList.remove();
 
@@ -408,7 +411,6 @@ function openMyProfile() {
             contactsDiv.appendChild(row);
         });
     }
-    // Insert after settings section
     settingsSection.parentNode.insertBefore(contactsDiv, settingsSection.nextSibling);
 
     panel.classList.add('open');
@@ -426,7 +428,7 @@ function toggleProfile(open) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SEND MESSAGE (unchanged)
+// SEND MESSAGE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function sendMessage() {
     const input = document.getElementById('msgInput');
@@ -462,7 +464,7 @@ function sendMessage() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// RENDER CALL LIST (with Save Contact)
+// RENDER CALL LIST
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderCallList() {
     const container = document.getElementById('callList');
@@ -601,7 +603,6 @@ window.openCallDetails = function(log) {
                 if (saved) {
                     modal.remove();
                     renderChatList();
-                    // refresh profile contacts list if open
                     if (document.getElementById('profilePanel').classList.contains('open')) {
                         openMyProfile();
                     }
@@ -619,7 +620,6 @@ function initFab() {
     if (!fab) return;
     fab.addEventListener('click', function() {
         document.getElementById('dialpadOverlay').classList.add('open');
-        // Show save button in dialpad if a number is entered
         const display = document.getElementById('dialpadDisplay');
         const saveBtn = document.getElementById('saveContactFromDialer');
         if (display && saveBtn) {
@@ -632,7 +632,6 @@ function initFab() {
                 }
             });
             observer.observe(display, { childList: true, subtree: true, characterData: true });
-            // Also attach click
             saveBtn.onclick = () => {
                 const num = display.textContent.trim();
                 if (num) {
@@ -909,9 +908,8 @@ function initRegistration() {
             document.getElementById('myNumberDisplay').textContent = phone;
             document.getElementById('headerStatusDot').className = 'status-dot connecting';
         }
-        // Also freeze number: disable phone input and hide change button (if any)
+        // Disable phone input (freeze number)
         regPhone.disabled = true;
-        // In the registration overlay, we don't have a "change" button; we'll just keep it.
     });
 }
 
