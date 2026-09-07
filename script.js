@@ -32,7 +32,7 @@
 })();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. DATA – contacts (hardcoded) + saved contacts
+// 2. DATA
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const defaultContacts = [
     {
@@ -193,15 +193,16 @@ function getSavedContacts() {
     try { return JSON.parse(localStorage.getItem('savedContacts')) || []; } catch (e) { return []; }
 }
 
-function saveContact(name, number) {
+function saveContact(name, number, username) {
     const contacts = getSavedContacts();
     if (contacts.find(c => c.number === number)) {
         showToast('Contact already saved');
         return false;
     }
-    contacts.push({ name, number, id: Date.now() });
+    contacts.push({ name, number, username: username || '', id: Date.now() });
     localStorage.setItem('savedContacts', JSON.stringify(contacts));
     renderChatList();
+    renderCallList();
     showToast('✅ Contact saved: ' + name);
     return true;
 }
@@ -211,7 +212,14 @@ function deleteContact(number) {
     contacts = contacts.filter(c => c.number !== number);
     localStorage.setItem('savedContacts', JSON.stringify(contacts));
     renderChatList();
+    renderCallList();
     showToast('Contact removed');
+}
+
+function getContactName(number) {
+    const saved = getSavedContacts();
+    const found = saved.find(c => c.number === number);
+    return found ? found.name : null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -221,7 +229,7 @@ function getAllContacts() {
     const saved = getSavedContacts();
     const all = [...defaultContacts];
     saved.forEach(sc => {
-        if (!all.find(c => c.name === sc.name || (c.img && c.img.includes(sc.number)))) {
+        if (!all.find(c => c.name === sc.name || (c.number && c.number === sc.number))) {
             all.push({
                 id: sc.id,
                 name: sc.name,
@@ -241,7 +249,7 @@ function getAllContacts() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// RENDER FUNCTIONS
+// RENDER CHAT LIST
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let activeContactId = 4;
 let currentTab = 'chat';
@@ -255,7 +263,6 @@ function renderChatList() {
         const div = document.createElement('div');
         div.className = 'chat-item';
         div.dataset.id = c.id;
-        const savedBadge = c.isSaved ? '<span class="contact-saved-badge">⭐</span>' : '';
         div.innerHTML = `
                     <div class="avatar" style="background:${c.color};">
                         <img src="${c.img}" alt="${c.name}" loading="lazy" />
@@ -357,13 +364,13 @@ function closeChat() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// PROFILE (loads from registration data – no `myProfile`)
+// PROFILE (loads from registration data)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openMyProfile() {
     const panel = document.getElementById('profilePanel');
-    // Load user data from registration
     const savedUser = localStorage.getItem('neonUser');
-    let userName = 'User', userPhone = '';
+    let userName = 'User',
+        userPhone = '';
     if (savedUser) {
         try {
             const user = JSON.parse(savedUser);
@@ -371,7 +378,6 @@ function openMyProfile() {
             userPhone = user.phone || '';
         } catch (e) {}
     }
-    // Also check PremCall number
     const premNum = localStorage.getItem('premCallNumber');
     if (premNum && !userPhone) userPhone = premNum;
 
@@ -382,37 +388,11 @@ function openMyProfile() {
     document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
     document.getElementById('profileTime').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
 
-    // Show saved contacts
-    const settingsSection = document.getElementById('settingsSection');
+    // Remove old contacts list if exists
     const oldList = document.getElementById('savedContactsList');
     if (oldList) oldList.remove();
 
-    const contactsDiv = document.createElement('div');
-    contactsDiv.id = 'savedContactsList';
-    contactsDiv.style.marginTop = '12px';
-    contactsDiv.innerHTML = `<div class="settings-header"><i class="fas fa-address-book"></i> Saved Contacts</div>`;
-    const saved = getSavedContacts();
-    if (saved.length === 0) {
-        contactsDiv.innerHTML += `<div style="font-size:0.75rem;color:#5a6885;padding:0.3rem 0;">No contacts saved yet.</div>`;
-    } else {
-        saved.forEach(sc => {
-            const row = document.createElement('div');
-            row.className = 'setting-item';
-            row.innerHTML = `
-                        <span>${sc.name} <span style="font-size:0.65rem;color:#5a6885;">${sc.number}</span></span>
-                        <button class="reg-btn" data-number="${sc.number}" style="background:rgba(239,68,68,0.12);color:#ef4444;"><i class="fas fa-trash"></i></button>
-                    `;
-            const delBtn = row.querySelector('button');
-            delBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                deleteContact(sc.number);
-                openMyProfile(); // refresh
-            });
-            contactsDiv.appendChild(row);
-        });
-    }
-    settingsSection.parentNode.insertBefore(contactsDiv, settingsSection.nextSibling);
-
+    // Saved contacts are now in the Calls tab, not here
     panel.classList.add('open');
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
@@ -464,22 +444,48 @@ function sendMessage() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// RENDER CALL LIST
+// RENDER CALL LIST (grouped by contact, with call counts)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderCallList() {
     const container = document.getElementById('callList');
     if (!container) return;
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
     container.innerHTML = '';
+
     if (!logs || logs.length === 0) {
         container.innerHTML =
             '<div style="text-align:center;color:#5a6885;padding:2rem 0;font-size:0.85rem;"><i class="fas fa-phone" style="display:block;font-size:1.8rem;margin-bottom:0.5rem;opacity:0.3;"></i>No calls yet</div>';
         return;
     }
-    logs.slice(0, 20).forEach(log => {
-        const div = document.createElement('div');
-        div.className = 'call-item';
-        const dir = log.direction || 'missed';
+
+    // Group calls by number
+    const groups = {};
+    logs.forEach(log => {
+        const num = log.number;
+        if (!groups[num]) groups[num] = [];
+        groups[num].push(log);
+    });
+
+    // Sort groups by most recent call
+    const sortedGroups = Object.keys(groups).sort((a, b) => {
+        const aLatest = groups[a].reduce((max, l) => Math.max(max, l.started || 0), 0);
+        const bLatest = groups[b].reduce((max, l) => Math.max(max, l.started || 0), 0);
+        return bLatest - aLatest;
+    });
+
+    sortedGroups.forEach(number => {
+        const calls = groups[number];
+        const latest = calls.reduce((a, b) => (a.started > b.started ? a : b));
+        const callCount = calls.length;
+        const contactName = getContactName(number) || number;
+        const displayName = contactName === number ? number : contactName;
+
+        // Count missed calls in this group
+        const missedCount = calls.filter(c => c.direction === 'missed').length;
+        const hasMissed = missedCount > 0;
+
+        // Determine the latest call direction
+        const dir = latest.direction || 'incoming';
         const iconMap = {
             missed: 'fa-phone-slash',
             incoming: 'fa-phone-arrow-down',
@@ -490,127 +496,231 @@ function renderCallList() {
             incoming: 'Incoming',
             outgoing: 'Outgoing'
         };
-        const duration = log.duration || '—';
-        const time = new Date(log.started).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const duration = latest.duration || '—';
+        const time = new Date(latest.started).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric',
+            hour: '2-digit', minute: '2-digit' });
+
+        const div = document.createElement('div');
+        div.className = 'call-item';
+        div.style.padding = '12px 0';
+        div.style.borderBottom = '1px solid rgba(255,255,255,0.04)';
+        div.style.cursor = 'pointer';
+        div.dataset.number = number;
+
+        // Check if contact is saved
+        const isSaved = getSavedContacts().some(c => c.number === number);
+
+        // Direction icon
+        const dirIcon = hasMissed ? 'fa-phone-slash' : (dir === 'incoming' ? 'fa-phone-arrow-down' : 'fa-phone-arrow-up');
+        const dirClass = hasMissed ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
+
         div.innerHTML = `
-                    <div class="call-icon ${dir}">
-                        <i class="fas ${iconMap[dir] || 'fa-phone'}"></i>
+                    <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+                        <div class="call-icon ${dirClass}" style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.9rem;background:${isSaved ? 'rgba(47,217,146,0.08)' : 'rgba(255,255,255,0.04)'};color:${isSaved ? '#2fd992' : '#a5b3d0'};">
+                            <i class="fas ${iconMap[dir] || 'fa-phone'}"></i>
+                        </div>
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                <span style="font-weight:600;font-size:0.95rem;color:#f0f2f7;">${displayName}</span>
+                                ${callCount > 1 ? `<span style="font-size:0.7rem;color:#5a6885;font-weight:500;">(${callCount})</span>` : ''}
+                                ${isSaved ? '<span style="font-size:0.6rem;color:#2fd992;">⭐</span>' : ''}
+                            </div>
+                            <div style="font-size:0.75rem;color:#7a89a8;display:flex;align-items:center;gap:4px;margin-top:1px;">
+                                <i class="fas ${dirIcon}" style="font-size:0.6rem;color:${hasMissed ? '#ef4444' : '#5a6885'};"></i>
+                                ${hasMissed ? 'Missed · ' : ''}
+                                ${time}
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-shrink:0;">
+                            <button class="call-action-btn" data-action="call" data-number="${number}" style="background:rgba(47,217,146,0.08);border:none;color:#2fd992;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-phone"></i></button>
+                            <button class="call-action-btn" data-action="message" data-number="${number}" style="background:rgba(139,92,246,0.08);border:none;color:#a78bfa;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-comment"></i></button>
+                        </div>
                     </div>
-                    <div class="call-info" style="cursor:pointer;" data-logid="${log.id}">
-                        <div class="call-name">${log.number}</div>
-                        <div class="call-detail">${labelMap[dir] || 'Call'} · ${duration} · ${time}</div>
-                    </div>
-                    <div class="call-time">${time}</div>
                 `;
-        const info = div.querySelector('.call-info');
-        info.addEventListener('click', function() {
-            const logId = parseInt(this.dataset.logid);
-            const fullLog = window.PremCall ? window.PremCall.getLogs().find(l => l.id === logId) : null;
-            if (fullLog && window.openCallDetails) {
-                window.openCallDetails(fullLog);
-            }
+        // Click on the whole entry opens details
+        div.addEventListener('click', (e) => {
+            if (e.target.closest('.call-action-btn')) return;
+            openCallDetailsForNumber(number);
         });
+
+        // Action buttons
+        div.querySelectorAll('.call-action-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const action = btn.dataset.action;
+                const num = btn.dataset.number;
+                if (action === 'call') {
+                    if (window.PremCall) PremCall.call(num);
+                } else if (action === 'message') {
+                    switchTab('chat');
+                    const search = document.getElementById('searchInput');
+                    if (search) {
+                        search.value = num;
+                        search.dispatchEvent(new Event('input'));
+                    }
+                }
+            });
+        });
+
         container.appendChild(div);
     });
+
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// CALL DETAILS MODAL (with Save Contact)
+// CALL DETAILS / PROFILE VIEW
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-window.openCallDetails = function(log) {
-    if (!log) return;
-    const isSaved = getSavedContacts().some(c => c.number === log.number);
-    const modal = document.createElement('div');
-    modal.style.cssText =
-        'position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,0.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;';
-    modal.innerHTML = `
-                <div style="background:rgba(18,16,36,0.95);border:1px solid rgba(255,255,255,0.06);border-radius:24px;padding:1.5rem;max-width:400px;width:92%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 40px 80px rgba(0,0,0,0.6);">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-                        <span style="font-weight:700;font-size:1.1rem;">${log.number}</span>
-                        <button id="detailsClose" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:32px;height:32px;border-radius:10px;font-size:1.1rem;cursor:pointer;">✕</button>
-                    </div>
-                    <div style="font-size:0.75rem;color:#7a89a8;margin-bottom:0.3rem;">
-                        ${log.direction === 'incoming' ? '📥 Incoming' : log.direction === 'outgoing' ? '📤 Outgoing' : '❌ Missed'} · 
-                        ${log.duration || '—'} · ${new Date(log.started).toLocaleString()}
-                        ${log.summary ? '<br><span style="color:#c4b5fd;font-size:0.7rem;">🧠 ' + log.summary + '</span>' : ''}
-                    </div>
-                    <div style="flex:1;min-height:0;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:12px;padding:0.6rem;margin:0.4rem 0;font-size:0.75rem;scrollbar-width:thin;">
-                        ${log.messages && log.messages.length ? log.messages.map(m => 
-                            '<div style="padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="font-weight:600;color:' + (m.role === 'user' ? '#8b5cf6' : '#2fd992') + ';">' + (m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live')) + ':</span> ' + m.text + '</div>'
-                        ).join('') : '<div style="color:#5a6885;text-align:center;padding:0.8rem;">No transcript</div>'}
-                    </div>
-                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;">
-                        <button class="details-call" style="padding:0.35rem 0.9rem;border-radius:30px;border:none;font-weight:600;font-size:0.75rem;cursor:pointer;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;">📞 Call</button>
-                        <button class="details-msg" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">💬 Msg</button>
-                        <button class="details-export-txt" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">📄 TXT</button>
-                        <button class="details-export-json" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">📄 JSON</button>
-                        <button class="details-share" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.75rem;cursor:pointer;">↗ Share</button>
-                        ${!isSaved ? `<button class="details-save" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(47,217,146,0.2);background:transparent;color:#2fd992;font-weight:500;font-size:0.75rem;cursor:pointer;">⭐ Save Contact</button>` : `<span style="padding:0.35rem 0.9rem;color:#2fd992;font-size:0.7rem;">⭐ Saved</span>`}
-                    </div>
-                </div>
-            `;
-    document.body.appendChild(modal);
+function openCallDetailsForNumber(number) {
+    const logs = window.PremCall ? window.PremCall.getLogs() : [];
+    const calls = logs.filter(l => l.number === number);
+    if (calls.length === 0) return;
 
-    modal.querySelector('#detailsClose').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    const contactName = getContactName(number) || number;
+    const isSaved = getSavedContacts().some(c => c.number === number);
 
-    modal.querySelector('.details-call').addEventListener('click', () => {
-        modal.remove();
-        if (window.PremCall) {
-            const num = log.number;
-            document.getElementById('dialText').innerHTML = num;
-            if (window.dialedNumber !== undefined) window.dialedNumber = num;
-            PremCall.call(num);
-        }
-    });
+    const modal = document.getElementById('callDetailsModal');
+    const card = document.getElementById('callDetailsCard');
 
-    modal.querySelector('.details-msg').addEventListener('click', () => {
-        modal.remove();
-        if (window.switchTab) switchTab('chat');
-        const search = document.getElementById('searchInput');
-        if (search) {
-            search.value = log.number;
-            search.dispatchEvent(new Event('input'));
-        }
-    });
+    // Set avatar
+    const avatar = document.getElementById('detailsAvatar');
+    avatar.textContent = contactName.charAt(0).toUpperCase();
 
-    modal.querySelector('.details-export-txt').addEventListener('click', () => {
-        if (window.PremCall) PremCall.exportLog(log, 'txt');
-    });
-    modal.querySelector('.details-export-json').addEventListener('click', () => {
-        if (window.PremCall) PremCall.exportLog(log, 'json');
-    });
-    modal.querySelector('.details-share').addEventListener('click', async () => {
-        if (!window.PremCall) return;
-        const text = window.PremCall.logText ? window.PremCall.logText(log) : 'Call transcript';
-        if (navigator.share) {
-            try { await navigator.share({ title: 'Call Transcript', text }); return; } catch (e) {}
-        }
-        try { await navigator.clipboard.writeText(text);
-            showToast('Copied!'); } catch (e) {
-            window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
-        }
-    });
+    document.getElementById('detailsName').textContent = contactName === number ? 'Unknown' : contactName;
+    document.getElementById('detailsNumber').textContent = '+91 ' + number;
 
-    const saveBtn = modal.querySelector('.details-save');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', () => {
-            const name = prompt('Enter contact name:', log.number);
-            if (name) {
-                const saved = saveContact(name, log.number);
-                if (saved) {
-                    modal.remove();
-                    renderChatList();
-                    if (document.getElementById('profilePanel').classList.contains('open')) {
-                        openMyProfile();
-                    }
-                }
-            }
-        });
+    // Save status
+    const saveStatus = document.getElementById('detailsSaveStatus');
+    const saveBtn = document.getElementById('detailsSaveBtn');
+    if (isSaved) {
+        saveStatus.textContent = '⭐ Contact saved';
+        saveBtn.textContent = 'Remove';
+        saveBtn.style.background = 'rgba(239,68,68,0.15)';
+        saveBtn.style.color = '#ef4444';
+    } else {
+        saveStatus.textContent = 'Not a contact';
+        saveBtn.textContent = 'Save';
+        saveBtn.style.background = 'linear-gradient(135deg,#7c3aed,#6d28d9)';
+        saveBtn.style.color = '#fff';
     }
-};
+
+    // Save button action
+    saveBtn.onclick = () => {
+        if (isSaved) {
+            deleteContact(number);
+            modal.classList.remove('active');
+            renderCallList();
+        } else {
+            // Open save contact modal
+            openSaveContactModal(number);
+            modal.classList.remove('active');
+        }
+    };
+
+    // Call history list
+    const historyContainer = document.getElementById('detailsCallList');
+    historyContainer.innerHTML = '';
+    calls.slice(0, 10).forEach(call => {
+        const dir = call.direction || 'incoming';
+        const iconMap = {
+            missed: 'fa-phone-slash',
+            incoming: 'fa-phone-arrow-down',
+            outgoing: 'fa-phone-arrow-up'
+        };
+        const dirClass = dir === 'missed' ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
+        const time = new Date(call.started).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit',
+            minute: '2-digit' });
+        const item = document.createElement('div');
+        item.style.cssText =
+            'display:flex;align-items:center;gap:10px;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:0.8rem;';
+        item.innerHTML = `
+                    <i class="fas ${iconMap[dir] || 'fa-phone'}" style="color:${dir === 'missed' ? '#ef4444' : '#5a6885'};width:18px;"></i>
+                    <span style="flex:1;color:#f0f2f7;">${dir === 'missed' ? 'Missed' : dir === 'incoming' ? 'Incoming' : 'Outgoing'}</span>
+                    <span style="color:#5a6885;font-size:0.7rem;">${time}</span>
+                `;
+        historyContainer.appendChild(item);
+    });
+
+    // Action buttons in details
+    modal.querySelectorAll('.details-action-btn').forEach(btn => {
+        btn.onclick = () => {
+            const action = btn.dataset.action;
+            if (action === 'call') {
+                if (window.PremCall) PremCall.call(number);
+                modal.classList.remove('active');
+            } else if (action === 'message') {
+                modal.classList.remove('active');
+                switchTab('chat');
+                const search = document.getElementById('searchInput');
+                if (search) {
+                    search.value = number;
+                    search.dispatchEvent(new Event('input'));
+                }
+            } else if (action === 'video') {
+                showToast('📹 Video call coming soon');
+                modal.classList.remove('active');
+            }
+        };
+    });
+
+    modal.classList.add('active');
+    // Animate in
+    setTimeout(() => {
+        card.style.transform = 'translateY(0)';
+    }, 50);
+
+    // Close button
+    document.getElementById('detailsCloseModal').onclick = () => {
+        modal.classList.remove('active');
+        card.style.transform = 'translateY(100%)';
+    };
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('active');
+            card.style.transform = 'translateY(100%)';
+        }
+    };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SAVE CONTACT FORM MODAL (replaces prompt)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function openSaveContactModal(number) {
+    const modal = document.getElementById('saveContactModal');
+    document.getElementById('saveContactPhone').value = number;
+    document.getElementById('saveContactName').value = '';
+    document.getElementById('saveContactUsername').value = '';
+    modal.classList.add('active');
+
+    document.getElementById('saveContactClose').onclick = () => {
+        modal.classList.remove('active');
+    };
+    modal.onclick = (e) => {
+        if (e.target === modal) modal.classList.remove('active');
+    };
+
+    document.getElementById('saveContactConfirm').onclick = () => {
+        const name = document.getElementById('saveContactName').value.trim();
+        const username = document.getElementById('saveContactUsername').value.trim();
+        const phone = document.getElementById('saveContactPhone').value.trim();
+        if (!name) {
+            showToast('Please enter a name');
+            return;
+        }
+        if (!phone) {
+            showToast('Please enter a phone number');
+            return;
+        }
+        const saved = saveContact(name, phone, username);
+        if (saved) {
+            modal.classList.remove('active');
+            renderCallList();
+            // Re-open details
+            openCallDetailsForNumber(phone);
+        }
+    };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FAB, DIALPAD, SETTINGS, THEME, REGISTRATION
@@ -620,29 +730,6 @@ function initFab() {
     if (!fab) return;
     fab.addEventListener('click', function() {
         document.getElementById('dialpadOverlay').classList.add('open');
-        const display = document.getElementById('dialpadDisplay');
-        const saveBtn = document.getElementById('saveContactFromDialer');
-        if (display && saveBtn) {
-            const observer = new MutationObserver(() => {
-                const num = display.textContent.trim();
-                if (num && /^\d{10}$/.test(num) && !getSavedContacts().some(c => c.number === num)) {
-                    saveBtn.style.display = 'block';
-                } else {
-                    saveBtn.style.display = 'none';
-                }
-            });
-            observer.observe(display, { childList: true, subtree: true, characterData: true });
-            saveBtn.onclick = () => {
-                const num = display.textContent.trim();
-                if (num) {
-                    const name = prompt('Enter contact name:', num);
-                    if (name) {
-                        saveContact(name, num);
-                        saveBtn.style.display = 'none';
-                    }
-                }
-            };
-        }
     });
 }
 
@@ -656,7 +743,6 @@ function initDialpad() {
         overlay.classList.remove('open');
         number = '';
         display.textContent = '';
-        document.getElementById('saveContactFromDialer').style.display = 'none';
     };
 
     document.getElementById('dialpadClose').addEventListener('click', closeDialpad);
@@ -691,7 +777,7 @@ function initDialpad() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SETTINGS & THEME (with bright mode fix)
+// SETTINGS & THEME
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initSettings() {
     document.querySelectorAll('.theme-btn').forEach(btn => {
@@ -780,6 +866,8 @@ function applyTheme(theme) {
         document.querySelectorAll('.status-dot-badge').forEach(el => {
             el.style.border = '1px solid rgba(0,0,0,0.1)';
         });
+        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#1a1832');
+        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#4a4a6a');
     } else if (theme === 'neon') {
         app.style.background = 'rgba(20, 8, 50, 0.85)';
         app.style.backdropFilter = 'blur(28px) saturate(1.8)';
@@ -814,6 +902,8 @@ function applyTheme(theme) {
         document.querySelectorAll('.status-dot-badge').forEach(el => {
             el.style.border = '1px solid rgba(192, 132, 252, 0.3)';
         });
+        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#e4d4ff');
+        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#9a8abe');
     } else {
         // Dark (default)
         app.style.background = 'rgba(12, 10, 28, 0.7)';
@@ -849,11 +939,13 @@ function applyTheme(theme) {
         document.querySelectorAll('.status-dot-badge').forEach(el => {
             el.style.border = '1px solid rgba(255,255,255,0.1)';
         });
+        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#f0f2f7');
+        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#7a89a8');
     }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// REGISTRATION (no +91, freeze number, replace alerts with toast)
+// REGISTRATION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initRegistration() {
     const overlay = document.getElementById('regOverlay');
@@ -895,11 +987,9 @@ function initRegistration() {
         localStorage.setItem('neonUser', JSON.stringify(userData));
         updateStatusBadge(userData);
         overlay.classList.remove('open');
-        // Update profile immediately
         document.getElementById('profileName').textContent = name;
         document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${phone}`;
         showToast('✅ Registration successful! Welcome, ' + name);
-        // Register with PremCall
         if (window.PremCall) {
             localStorage.setItem('premCallNumber', phone);
             localStorage.setItem('premCallVerified', 'true');
@@ -908,7 +998,6 @@ function initRegistration() {
             document.getElementById('myNumberDisplay').textContent = phone;
             document.getElementById('headerStatusDot').className = 'status-dot connecting';
         }
-        // Disable phone input (freeze number)
         regPhone.disabled = true;
     });
 }
@@ -992,7 +1081,7 @@ function showToast(msg) {
 window.showToast = showToast;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// EVENT LISTENERS (with null checks)
+// EVENT LISTENERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function setupEventListeners() {
     const backBtn = document.getElementById('backBtn');
@@ -1092,9 +1181,13 @@ function setupEventListeners() {
             else if (document.getElementById('dialpadOverlay')?.classList.contains('open')) {
                 document.getElementById('dialpadOverlay').classList.remove('open');
                 document.getElementById('dialpadDisplay').textContent = '';
-                document.getElementById('saveContactFromDialer').style.display = 'none';
             } else if (document.getElementById('regOverlay')?.classList.contains('open')) {
                 document.getElementById('regOverlay').classList.remove('open');
+            } else if (document.getElementById('callDetailsModal')?.classList.contains('active')) {
+                document.getElementById('callDetailsModal').classList.remove('active');
+                document.getElementById('callDetailsCard').style.transform = 'translateY(100%)';
+            } else if (document.getElementById('saveContactModal')?.classList.contains('active')) {
+                document.getElementById('saveContactModal').classList.remove('active');
             }
         }
     });
@@ -1145,7 +1238,6 @@ function setupEventListeners() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function init() {
     try {
-        // Load saved user status for chat
         const savedUser = localStorage.getItem('neonUser');
         if (savedUser) {
             try {
@@ -1165,7 +1257,6 @@ function setupEventListeners() {
         renderCallList();
         setupEventListeners();
 
-        // Check for registered number for calling
         const stored = localStorage.getItem('premCallNumber');
         const verified = localStorage.getItem('premCallVerified') === 'true';
         if (stored && verified && window.PremCall) {
@@ -1181,9 +1272,9 @@ function setupEventListeners() {
     }
 })();
 
-// Expose functions globally for app.js integration
+// Expose functions globally
 window.renderCallList = renderCallList;
-window.openCallDetails = window.openCallDetails;
+window.openCallDetailsForNumber = openCallDetailsForNumber;
 window.addHistoryEntry = function(number, direction, duration, logId) {
     setTimeout(renderCallList, 300);
 };
@@ -1191,3 +1282,4 @@ window.getSavedContacts = getSavedContacts;
 window.saveContact = saveContact;
 window.deleteContact = deleteContact;
 window.showToast = showToast;
+window.getContactName = getContactName;
