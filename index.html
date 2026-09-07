@@ -7,13 +7,15 @@
     <link rel="icon" type="image/png" href="sandesai-logo.png" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <!-- External CSS -->
+    <link rel="stylesheet" href="style.css" />
+    <!-- jQuery + Parallax + PeerJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous">
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous">
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js">
     </script>
-    <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
@@ -38,11 +40,11 @@
                         <span class="status-dot-badge" id="statusDot"></span>
                         <span id="statusText">Offline</span>
                     </span>
-                    <span class="status-dot" id="headerStatusDot" style="width:10px;height:10px;border-radius:50%;display:inline-block;background:#64748b;margin-left:4px;"></span>
+                    <span class="status-dot" id="headerStatusDot"></span>
                 </div>
                 <div class="actions">
                     <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>
-                    <button data-depth="0.20"><i class="fas fa-ellipsis-vertical"></i></button>
+                    <button id="aboutBtn" data-depth="0.20"><i class="fas fa-ellipsis-vertical"></i></button>
                 </div>
             </header>
 
@@ -167,7 +169,7 @@
             <div class="profile-time" id="profileTime"><i class="far fa-clock"></i> Last active: 12:30</div>
         </div>
 
-        <!-- ===== REGISTRATION FORM (no +91) ===== -->
+        <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
                 <div class="reg-header">
@@ -301,14 +303,13 @@
             </div>
         </div>
 
-        <!-- ===== CALL DETAILS / PROFILE MODAL (new) ===== -->
+        <!-- ===== CALL DETAILS MODAL ===== -->
         <div id="callDetailsModal" style="display:none;position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);align-items:flex-end;justify-content:center;padding:1rem;">
             <div id="callDetailsCard" style="background:rgba(18,16,36,0.96);border-radius:28px 28px 0 0;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;padding:1.5rem 1.2rem 1.2rem;border:1px solid rgba(255,255,255,0.04);box-shadow:0 -20px 60px rgba(0,0,0,0.5);transform:translateY(100%);transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                     <span style="font-size:1.1rem;font-weight:700;">Call info</span>
                     <button id="detailsCloseModal" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:32px;height:32px;border-radius:50%;font-size:1.2rem;cursor:pointer;">✕</button>
                 </div>
-                <!-- Contact Avatar & Name -->
                 <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
                     <div id="detailsAvatar" style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:700;color:#fff;flex-shrink:0;">👤</div>
                     <div>
@@ -321,24 +322,21 @@
                         <button class="details-action-btn" data-action="video" style="background:rgba(79,140,247,0.12);border:none;color:#4f8cf7;width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;"><i class="fas fa-video"></i></button>
                     </div>
                 </div>
-                <!-- Save / Contact status -->
                 <div id="detailsSaveRow" style="display:flex;align-items:center;gap:0.6rem;background:rgba(255,255,255,0.03);border-radius:14px;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid rgba(255,255,255,0.04);">
                     <span style="font-size:0.8rem;color:#7a89a8;" id="detailsSaveStatus">Not a contact</span>
                     <button id="detailsSaveBtn" style="margin-left:auto;padding:0.25rem 1rem;border-radius:20px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:0.75rem;font-weight:600;cursor:pointer;">Save</button>
                 </div>
-                <!-- Call history list -->
                 <div id="detailsCallHistory" style="margin-top:0.5rem;">
                     <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">Call history</div>
                     <div id="detailsCallList"></div>
                 </div>
-                <!-- Safety tools (placeholder) -->
                 <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.04);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;align-items:center;">
                     <i class="fas fa-shield"></i> Safety tools
                 </div>
             </div>
         </div>
 
-        <!-- ===== SAVE CONTACT FORM MODAL (replaces prompt) ===== -->
+        <!-- ===== SAVE CONTACT MODAL ===== -->
         <div id="saveContactModal" style="display:none;position:fixed;inset:0;z-index:5100;background:rgba(0,0,0,0.7);backdrop-filter:blur(12px);align-items:center;justify-content:center;padding:1.5rem;">
             <div style="background:rgba(18,16,36,0.96);border-radius:28px;padding:1.5rem;max-width:380px;width:100%;border:1px solid rgba(255,255,255,0.06);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem;">
@@ -361,66 +359,50 @@
             </div>
         </div>
 
+        <!-- ===== ABOUT OVERLAY (with parallax) ===== -->
+        <div id="aboutOverlay" style="display:none;position:absolute;inset:0;z-index:100;background:rgba(8,6,20,0.7);backdrop-filter:blur(12px);align-items:center;justify-content:center;border-radius:inherit;">
+            <div class="about-card" style="background:rgba(18,16,36,0.92);border:1px solid rgba(255,255,255,0.06);border-radius:28px;padding:2rem 1.8rem;max-width:380px;width:92%;box-shadow:0 40px 80px rgba(0,0,0,0.6);transform:scale(0.92) translateY(20px);transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <div style="display:flex;align-items:center;gap:0.7rem;" data-depth="0.15">
+                        <img src="sandesai-logo.png" alt="Logo" style="width:40px;height:40px;border-radius:12px;" />
+                        <span style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.2rem;background:linear-gradient(135deg,#a78bfa,#6ee7ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Sandes'ai</span>
+                    </div>
+                    <button id="aboutClose" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:32px;height:32px;border-radius:50%;font-size:1.2rem;cursor:pointer;">✕</button>
+                </div>
+                <div style="margin-bottom:0.8rem;" data-depth="0.10">
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                        <span style="background:rgba(139,92,246,0.12);padding:0.1rem 0.6rem;border-radius:20px;font-size:0.7rem;color:#a78bfa;">v0.1</span>
+                        <span style="background:rgba(110,231,255,0.08);padding:0.1rem 0.6rem;border-radius:20px;font-size:0.7rem;color:#6ee7ff;">Beta</span>
+                    </div>
+                </div>
+                <div style="margin-bottom:1.2rem;" data-depth="0.05">
+                    <div style="font-size:0.8rem;color:#7a89a8;line-height:1.6;">
+                        <span style="font-weight:600;color:#eef0f5;">Created by</span> <span style="color:#c4b5fd;">@suryasticsai</span><br />
+                        <span style="font-size:0.75rem;">Techno Agilist · Dev Engineer · Strategic Consultant</span><br />
+                        <span style="font-size:0.7rem;color:#5a6885;">6+ yrs at Tata Consultancy Services</span>
+                    </div>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem;justify-content:center;margin-top:0.5rem;" data-depth="0.12">
+                    <a href="mailto:suryasticsai@gmail.com" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fas fa-envelope"></i></a>
+                    <a href="https://github.com/suryasticsai" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fab fa-github"></i></a>
+                    <a href="https://huggingface.co/suryasticsai" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fab fa-hugging-face"></i></a>
+                    <a href="https://medium.com/@suryasticsai" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fab fa-medium"></i></a>
+                    <a href="https://instagram.com/suryasticsai" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fab fa-instagram"></i></a>
+                    <a href="https://linkedin.com/in/suryasticsai" target="_blank" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#a5b3d0;text-decoration:none;transition:all 0.2s;font-size:0.9rem;"><i class="fab fa-linkedin"></i></a>
+                </div>
+                <div style="margin-top:1rem;font-size:0.6rem;color:#3a4868;text-align:center;" data-depth="0.08">
+                    <i class="fas fa-cube"></i> Built with ♥ by Surya
+                </div>
+            </div>
+        </div>
+
         <!-- ===== TOAST ===== -->
         <div id="toast"></div>
         <audio id="remoteAudio" autoplay playsinline style="display:none;"></audio>
 
     </div> <!-- end .app -->
 
-    <style>
-        /* Incoming / Call screen styles */
-        #incomingOverlay.active { display:flex !important; }
-        #callScreen.active { display:flex !important; }
-        #incomingOverlay .answer:active { transform:scale(0.92); }
-        #incomingOverlay .reject:active { transform:scale(0.92); }
-        .call-ring { animation: callPulse 2.4s ease-out infinite; }
-        @keyframes callPulse {
-            0% { transform: scale(0.8); opacity: 0.5; }
-            100% { transform: scale(1.8); opacity: 0; }
-        }
-        @keyframes incomingPulse {
-            50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(47,217,146,0.3); }
-        }
-        #callTranscript::-webkit-scrollbar { width: 3px; }
-        #callTranscript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
-        #callTranscript .msg { display:flex; gap:0.5rem; padding:0.2rem 0; border-bottom:1px solid rgba(255,255,255,0.03); }
-        #callTranscript .who { font-weight:600; min-width:2.8rem; font-size:0.66rem; text-transform:uppercase; flex-shrink:0; }
-        #callTranscript .who.user { color:#8b5cf6; }
-        #callTranscript .who.ragina { color:#2fd992; }
-        .status-dot.online { background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,0.4); }
-        .status-dot.offline { background:#64748b; }
-        .status-dot.connecting { background:#ffb648; animation: blinkStatus 1.1s infinite; }
-        @keyframes blinkStatus { 50% { opacity:0.35; } }
-        #dialCallBtn.disabled { opacity:0.35; pointer-events:none; }
-        .fab-button { position:fixed; bottom:100px; right:20px; z-index:50; }
-        .dialpad-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(8,6,20,0.75); backdrop-filter:blur(16px); z-index:40; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.35s ease; }
-        .dialpad-overlay.open { opacity:1; pointer-events:auto; }
-        .dialpad { background:rgba(18,16,36,0.92); border-radius:32px; padding:24px 20px; width:92%; max-width:380px; border:1px solid rgba(255,255,255,0.06); box-shadow:0 40px 80px rgba(0,0,0,0.7); transform:scale(0.92) translateY(16px); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1); }
-        .dialpad-overlay.open .dialpad { transform:scale(1) translateY(0); }
-        .dialpad-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-        .dialpad-header span { font-size:18px; font-weight:600; color:#f0f2f7; }
-        .dialpad-close { background:rgba(255,255,255,0.04); border:none; color:#a5b3d0; width:32px; height:32px; border-radius:10px; font-size:16px; cursor:pointer; }
-        .dialpad-display { background:rgba(255,255,255,0.04); border-radius:14px; padding:12px 16px; margin-bottom:16px; font-size:24px; font-weight:600; text-align:center; min-height:52px; color:#f0f2f7; letter-spacing:2px; border:1px solid rgba(255,255,255,0.04); }
-        .dialpad-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
-        .dial-btn { padding:14px 0; border:none; border-radius:16px; background:rgba(255,255,255,0.04); color:#f0f2f7; font-size:22px; font-weight:600; cursor:pointer; transition:all 0.2s; border:1px solid rgba(255,255,255,0.04); }
-        .dial-btn:hover { background:rgba(139,92,246,0.15); border-color:rgba(139,92,246,0.15); }
-        .dial-btn:active { transform:scale(0.92); }
-        .dialpad-actions { display:flex; gap:12px; justify-content:center; }
-        .dial-delete { padding:12px 20px; border:none; border-radius:16px; background:rgba(255,255,255,0.04); color:#ef4444; font-size:18px; cursor:pointer; flex:1; }
-        .dial-delete:hover { background:rgba(239,68,68,0.12); }
-        .dial-call { padding:12px 20px; border:none; border-radius:16px; background:linear-gradient(135deg,#22c55e,#16a34a); color:#fff; font-size:18px; cursor:pointer; flex:2; font-weight:600; }
-        .dial-call:hover { transform:scale(1.02); box-shadow:0 4px 20px rgba(34,197,94,0.3); }
-        .dial-call:active { transform:scale(0.95); }
-        #toast { position:fixed; bottom:calc(28px + env(safe-area-inset-bottom,0px)); left:50%; transform:translateX(-50%) translateY(20px); background:rgba(18,16,36,0.95); border:1px solid rgba(255,255,255,0.06); color:#eef0f5; padding:0.65rem 1.3rem; border-radius:40px; font-size:0.83rem; opacity:0; pointer-events:none; transition:opacity .25s ease,transform .25s ease; z-index:6000; max-width:88%; text-align:center; backdrop-filter:blur(12px); }
-        #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
-        .fab-button.hidden { display:none !important; }
-        .contact-saved-badge { background:#2fd992; color:#04140c; font-size:0.6rem; padding:0.1rem 0.4rem; border-radius:10px; margin-left:0.3rem; }
-        #callDetailsModal.active { display:flex !important; }
-        #callDetailsModal.active #callDetailsCard { transform:translateY(0); }
-        #saveContactModal.active { display:flex !important; }
-        .details-action-btn:active { transform:scale(0.9); }
-    </style>
-
+    <!-- External JavaScript -->
     <script src="script.js"></script>
     <script src="app.js"></script>
 </body>
