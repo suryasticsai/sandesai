@@ -803,3 +803,216 @@ function setupEventListeners() {
         alert('Something went wrong. Check console for details.');
     }
 })();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CALL HISTORY INTEGRATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Override the existing renderCallList to show real call logs
+const originalRenderCallList = renderCallList;
+renderCallList = function() {
+    const container = document.getElementById('callList');
+    if (!container) return;
+
+    // Use PremCall logs if available
+    const logs = window.PremCall ? window.PremCall.getLogs() : [];
+    container.innerHTML = '';
+
+    if (!logs || logs.length === 0) {
+        container.innerHTML =
+            '<div style="text-align:center;color:#5a6885;padding:2rem 0;font-size:0.85rem;"><i class="fas fa-phone" style="display:block;font-size:1.8rem;margin-bottom:0.5rem;opacity:0.3;"></i>No calls yet</div>';
+        return;
+    }
+
+    logs.slice(0, 20).forEach(log => {
+        const div = document.createElement('div');
+        div.className = 'call-item';
+        const dir = log.direction || 'missed';
+        const iconMap = {
+            missed: 'fa-phone-slash',
+            incoming: 'fa-phone-arrow-down',
+            outgoing: 'fa-phone-arrow-up'
+        };
+        const labelMap = {
+            missed: 'Missed',
+            incoming: 'Incoming',
+            outgoing: 'Outgoing'
+        };
+        const duration = log.duration || '—';
+        const time = new Date(log.started).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        div.innerHTML = `
+            <div class="call-icon ${dir}">
+                <i class="fas ${iconMap[dir] || 'fa-phone'}"></i>
+            </div>
+            <div class="call-info" style="cursor:pointer;" data-logid="${log.id}">
+                <div class="call-name">${log.number}</div>
+                <div class="call-detail">${labelMap[dir] || 'Call'} · ${duration} · ${time}</div>
+            </div>
+            <div class="call-time">${time}</div>
+        `;
+        // Click to view details
+        const info = div.querySelector('.call-info');
+        info.addEventListener('click', function() {
+            const logId = parseInt(this.dataset.logid);
+            const fullLog = window.PremCall ? window.PremCall.getLogs().find(l => l.id === logId) : null;
+            if (fullLog && window.openCallDetails) {
+                window.openCallDetails(fullLog);
+            }
+        });
+        container.appendChild(div);
+    });
+};
+
+// Add call details modal opener
+window.openCallDetails = function(log) {
+    if (!log) return;
+    const modal = document.createElement('div');
+    modal.style.cssText =
+        'position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,0.7);backdrop-filter:blur(12px);display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:rgba(18,16,36,0.95);border:1px solid rgba(255,255,255,0.06);border-radius:24px;padding:1.5rem;max-width:400px;width:92%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 40px 80px rgba(0,0,0,0.6);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+                <span style="font-weight:700;font-size:1.1rem;">${log.number}</span>
+                <button id="detailsClose" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:32px;height:32px;border-radius:10px;font-size:1.1rem;cursor:pointer;">✕</button>
+            </div>
+            <div style="font-size:0.75rem;color:#7a89a8;margin-bottom:0.3rem;">
+                ${log.direction === 'incoming' ? '📥 Incoming' : log.direction === 'outgoing' ? '📤 Outgoing' : '❌ Missed'} · 
+                ${log.duration || '—'} · ${new Date(log.started).toLocaleString()}
+                ${log.summary ? '<br><span style="color:#c4b5fd;font-size:0.7rem;">🧠 ' + log.summary + '</span>' : ''}
+            </div>
+            <div style="flex:1;min-height:0;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:12px;padding:0.6rem;margin:0.4rem 0;font-size:0.75rem;scrollbar-width:thin;">
+                ${log.messages && log.messages.length ? log.messages.map(m => 
+                    '<div style="padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="font-weight:600;color:' + (m.role === 'user' ? '#8b5cf6' : '#2fd992') + ';">' + (m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live')) + ':</span> ' + m.text + '</div>'
+                ).join('') : '<div style="color:#5a6885;text-align:center;padding:0.8rem;">No transcript</div>'}
+            </div>
+            <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;">
+                <button class="details-call" style="padding:0.35rem 0.9rem;border-radius:30px;border:none;font-weight:600;font-size:0.75rem;cursor:pointer;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;">📞 Call</button>
+                <button class="details-msg" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">💬 Msg</button>
+                <button class="details-export-txt" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">📄 TXT</button>
+                <button class="details-export-json" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.75rem;cursor:pointer;">📄 JSON</button>
+                <button class="details-share" style="padding:0.35rem 0.9rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.75rem;cursor:pointer;">↗ Share</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Close
+    modal.querySelector('#detailsClose').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+    // Call
+    modal.querySelector('.details-call').addEventListener('click', () => {
+        modal.remove();
+        if (window.PremCall) {
+            const num = log.number;
+            document.getElementById('dialText').innerHTML = num;
+            if (window.dialedNumber !== undefined) window.dialedNumber = num;
+            PremCall.call(num);
+        }
+    });
+
+    // Message
+    modal.querySelector('.details-msg').addEventListener('click', () => {
+        modal.remove();
+        // Switch to chat tab
+        if (window.switchTab) switchTab('chat');
+        // Pre-fill search with number
+        const search = document.getElementById('searchInput');
+        if (search) search.value = log.number;
+        // Simulate search
+        if (search) search.dispatchEvent(new Event('input'));
+    });
+
+    // Export TXT
+    modal.querySelector('.details-export-txt').addEventListener('click', () => {
+        if (window.PremCall) PremCall.exportLog(log, 'txt');
+    });
+
+    // Export JSON
+    modal.querySelector('.details-export-json').addEventListener('click', () => {
+        if (window.PremCall) PremCall.exportLog(log, 'json');
+    });
+
+    // Share
+    modal.querySelector('.details-share').addEventListener('click', async () => {
+        if (!window.PremCall) return;
+        const text = window.PremCall.logText ? window.PremCall.logText(log) : 'Call transcript';
+        if (navigator.share) {
+            try { await navigator.share({ title: 'Call Transcript', text }); return; } catch (e) {}
+        }
+        try { await navigator.clipboard.writeText(text);
+            showToast('Copied!'); } catch (e) {
+            window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+        }
+    });
+};
+
+// Override the tab switching to refresh calls when switching to calls tab
+const originalSwitchTab = switchTab;
+switchTab = function(tab) {
+    originalSwitchTab(tab);
+    if (tab === 'calls') {
+        renderCallList();
+    }
+};
+
+// Add call history entry from PremCall
+window.addHistoryEntry = function(number, direction, duration, logId) {
+    // This is called from PremCall - just refresh the call list
+    if (document.getElementById('callsPanel').style.display !== 'none') {
+        setTimeout(renderCallList, 300);
+    }
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 14 INIT CALLING ON LOAD
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for registered number
+    const stored = localStorage.getItem('premCallNumber');
+    const verified = localStorage.getItem('premCallVerified') === 'true';
+    if (stored && verified && window.PremCall) {
+        document.getElementById('myNumberDisplay').textContent = stored;
+        PremCall.init(stored);
+    } else if (window.PremCall) {
+        PremCall.init('0000000000');
+    }
+
+    // Call screen button handlers
+    document.getElementById('hangupCallBtn')?.addEventListener('click', () => {
+        if (window.PremCall) PremCall.hangup();
+        vibrate(15);
+    });
+
+    document.getElementById('muteBtn')?.addEventListener('click', function() {
+        if (!window.PremCall) return;
+        const m = PremCall.mute();
+        this.classList.toggle('active', m);
+        this.innerHTML = m ? '<i class="fas fa-microphone-slash"></i>' : '<i class="fas fa-microphone"></i>';
+        showToast(m ? 'Muted' : 'Unmuted');
+    });
+
+    document.getElementById('speakerBtn')?.addEventListener('click', function() {
+        if (!window.PremCall) return;
+        const s = PremCall.speaker();
+        this.classList.toggle('active', s);
+        showToast(s ? 'Speaker on' : 'Speaker off');
+    });
+
+    document.getElementById('videoBtn')?.addEventListener('click', function() {
+        if (!window.PremCall) return;
+        const v = PremCall.video();
+        this.classList.toggle('active', v);
+        this.innerHTML = v ? '<i class="fas fa-video-slash"></i>' : '<i class="fas fa-video"></i>';
+        showToast(v ? 'Video on' : 'Video off');
+    });
+
+    document.getElementById('answerBtn')?.addEventListener('click', () => {
+        if (window.PremCall) PremCall.answer();
+    });
+
+    document.getElementById('rejectBtn')?.addEventListener('click', () => {
+        if (window.PremCall) PremCall.reject();
+        showToast('Call declined');
+    });
+});
