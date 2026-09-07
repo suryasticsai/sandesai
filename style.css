@@ -1,3 +1,4 @@
+/* ─── RESET & BASE ─── */
 * {
     margin: 0;
     padding: 0;
@@ -18,6 +19,7 @@ body {
     margin: 0;
 }
 
+/* ─── PARALLAX ─── */
 .parallax-scene {
     position: fixed;
     top: 0;
@@ -65,6 +67,7 @@ body {
     mix-blend-mode: overlay;
 }
 
+/* ─── APP ─── */
 .app {
     position: relative;
     z-index: 1;
@@ -80,6 +83,7 @@ body {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    transition: background 0.4s ease, backdrop-filter 0.4s ease;
 }
 
 @media (min-width: 640px) {
@@ -91,6 +95,7 @@ body {
     }
 }
 
+/* ─── VIEWS ─── */
 .view {
     position: absolute;
     top: 0;
@@ -127,6 +132,7 @@ body {
     transform: translateX(0);
 }
 
+/* ─── LIST HEADER ─── */
 .list-header {
     padding: 14px 16px 10px 20px;
     display: flex;
@@ -189,6 +195,7 @@ body {
     border: 1px solid rgba(139, 92, 246, 0.15) !important;
 }
 
+/* ─── SEARCH ─── */
 .search-wrap {
     padding: 10px 14px 6px 18px;
     position: relative;
@@ -205,6 +212,7 @@ body {
     font-size: 14px;
     outline: none;
     font-family: 'Inter', sans-serif;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
 }
 
 .search-wrap input::placeholder {
@@ -225,6 +233,7 @@ body {
     font-size: 15px;
 }
 
+/* ─── LIST CONTENT ─── */
 .list-content {
     flex: 1;
     overflow: hidden;
@@ -255,6 +264,7 @@ body {
     padding: 4px 8px 4px 12px;
 }
 
+/* ─── CHAT ITEMS ─── */
 .chat-item {
     display: flex;
     align-items: center;
@@ -370,6 +380,7 @@ body {
     box-shadow: 0 0 16px rgba(139, 92, 246, 0.3);
 }
 
+/* ─── CALL ITEMS ─── */
 .call-item {
     display: flex;
     align-items: center;
@@ -377,6 +388,7 @@ body {
     padding: 10px 12px;
     border-radius: 16px;
     margin-bottom: 2px;
+    transition: background 0.3s;
 }
 
 .call-item .call-icon {
@@ -427,6 +439,7 @@ body {
     color: #5a6885;
 }
 
+/* ─── FOOTER TABS ─── */
 .list-footer {
     border-top: 1px solid rgba(255, 255, 255, 0.04);
     display: flex;
@@ -466,6 +479,7 @@ body {
     background: rgba(255, 255, 255, 0.04);
 }
 
+/* ─── CHAT VIEW HEADER ─── */
 .chat-header {
     padding: 10px 12px 10px 8px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -574,6 +588,7 @@ body {
     border: 1px solid rgba(139, 92, 246, 0.12) !important;
 }
 
+/* ─── CHAT MESSAGES ─── */
 .chat-messages {
     flex: 1;
     overflow-y: auto;
@@ -670,6 +685,7 @@ body {
     color: #8b5cf6;
 }
 
+/* ─── CHAT INPUT ─── */
 .chat-input {
     padding: 8px 12px 12px 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.04);
@@ -690,6 +706,7 @@ body {
     font-size: 14px;
     outline: none;
     font-family: 'Inter', sans-serif;
+    transition: border-color 0.3s, background 0.3s, color 0.3s;
 }
 
 .chat-input input::placeholder {
@@ -736,6 +753,7 @@ body {
     color: #6ee7ff !important;
 }
 
+/* ─── PROFILE PANEL ─── */
 .profile-panel {
     position: absolute;
     right: 0;
@@ -985,6 +1003,7 @@ body {
     border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* ─── AI OVERLAY ─── */
 .ai-overlay {
     position: absolute;
     top: 0;
@@ -1155,6 +1174,7 @@ body {
     margin-right: 4px;
 }
 
+/* ─── FAB BUTTON ─── */
 .fab-button {
     position: fixed;
     bottom: 100px;
@@ -1169,22 +1189,20 @@ body {
     align-items: center;
     justify-content: center;
     box-shadow: 0 8px 32px rgba(139, 92, 246, 0.4);
-    cursor: grab;
+    cursor: pointer;
     z-index: 50;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, background 0.3s;
     user-select: none;
-    touch-action: none;
     border: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.fab-button:active {
-    cursor: grabbing;
-    transform: scale(0.92);
 }
 
 .fab-button:hover {
     transform: scale(1.05);
     box-shadow: 0 8px 40px rgba(139, 92, 246, 0.6);
+}
+
+.fab-button:active {
+    transform: scale(0.92);
 }
 
 .fab-button i {
@@ -1195,6 +1213,7 @@ body {
     display: none !important;
 }
 
+/* ─── DIALPAD ─── */
 .dialpad-overlay {
     position: absolute;
     top: 0;
@@ -1351,6 +1370,7 @@ body {
     transform: scale(0.95);
 }
 
+/* ─── STATUS BADGE ─── */
 .status-badge {
     font-size: 10px;
     display: inline-flex;
@@ -1388,6 +1408,35 @@ body {
     letter-spacing: 0.3px;
 }
 
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-left: 4px;
+}
+
+.status-dot.online {
+    background: #22c55e;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+}
+
+.status-dot.offline {
+    background: #64748b;
+}
+
+.status-dot.connecting {
+    background: #ffb648;
+    animation: blinkStatus 1.1s infinite;
+}
+
+@keyframes blinkStatus {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+/* ─── REGISTRATION ─── */
 .registration-overlay {
     position: absolute;
     top: 0;
@@ -1560,6 +1609,269 @@ body {
     transform: scale(1.1);
 }
 
+/* ─── INCOMING CALL ─── */
+#incomingOverlay.active {
+    display: flex !important;
+}
+
+#callScreen.active {
+    display: flex !important;
+}
+
+#incomingOverlay .answer:active {
+    transform: scale(0.92);
+}
+
+#incomingOverlay .reject:active {
+    transform: scale(0.92);
+}
+
+.call-ring {
+    animation: callPulse 2.4s ease-out infinite;
+}
+
+@keyframes callPulse {
+    0% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(1.8);
+        opacity: 0;
+    }
+}
+
+@keyframes incomingPulse {
+    50% {
+        transform: scale(1.05);
+        box-shadow: 0 0 40px rgba(47, 217, 146, 0.3);
+    }
+}
+
+#callTranscript::-webkit-scrollbar {
+    width: 3px;
+}
+
+#callTranscript::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+#callTranscript .msg {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+#callTranscript .who {
+    font-weight: 600;
+    min-width: 2.8rem;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+#callTranscript .who.user {
+    color: #8b5cf6;
+}
+
+#callTranscript .who.ragina {
+    color: #2fd992;
+}
+
+#dialCallBtn.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.contact-saved-badge {
+    background: #2fd992;
+    color: #04140c;
+    font-size: 0.6rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 10px;
+    margin-left: 0.3rem;
+}
+
+/* ─── TOAST ─── */
+#toast {
+    position: fixed;
+    bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(18, 16, 36, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #eef0f5;
+    padding: 0.65rem 1.3rem;
+    border-radius: 40px;
+    font-size: 0.83rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+    z-index: 6000;
+    max-width: 88%;
+    text-align: center;
+    backdrop-filter: blur(12px);
+}
+
+#toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ─── CALL DETAILS MODAL ─── */
+#callDetailsModal.active {
+    display: flex !important;
+}
+
+#callDetailsModal.active #callDetailsCard {
+    transform: translateY(0);
+}
+
+/* ─── SAVE CONTACT MODAL ─── */
+#saveContactModal.active {
+    display: flex !important;
+}
+
+.details-action-btn:active {
+    transform: scale(0.9);
+}
+
+/* ─── ABOUT OVERLAY ─── */
+#aboutOverlay.active {
+    display: flex !important;
+}
+
+#aboutOverlay .about-card {
+    transform: scale(0.92) translateY(20px);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+#aboutOverlay.active .about-card {
+    transform: scale(1) translateY(0);
+}
+
+/* ─── DEBUG CONSOLE ─── */
+#debugConsole {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 40vh;
+    background: rgba(0, 0, 0, 0.92);
+    border-top: 2px solid rgba(139, 92, 246, 0.3);
+    backdrop-filter: blur(8px);
+    z-index: 9999;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    display: flex;
+    flex-direction: column;
+    font-family: 'Inter', sans-serif;
+}
+
+#debugConsole.open {
+    transform: translateY(0);
+}
+
+#debugConsole .console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    background: rgba(139, 92, 246, 0.12);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    flex-shrink: 0;
+}
+
+#debugConsole .console-header span {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a78bfa;
+    letter-spacing: 0.03em;
+}
+
+#debugConsole .console-header .console-actions {
+    display: flex;
+    gap: 8px;
+}
+
+#debugConsole .console-header button {
+    background: rgba(255, 255, 255, 0.04);
+    border: none;
+    color: #a5b3d0;
+    padding: 2px 10px;
+    border-radius: 8px;
+    font-size: 10px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: background 0.2s;
+}
+
+#debugConsole .console-header button:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+#debugConsole .console-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+    line-height: 1.6;
+    color: #8fd4a8;
+}
+
+#debugConsole .console-body .log-entry {
+    padding: 1px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+    word-break: break-all;
+}
+
+#debugConsole .console-body .log-entry .log-time {
+    color: #5a6885;
+    margin-right: 6px;
+}
+
+#debugConsole .console-body .log-entry.log-error {
+    color: #ef4444;
+}
+
+#debugConsole .console-body .log-entry.log-warn {
+    color: #ffb648;
+}
+
+#debugConsole .console-body .log-entry.log-info {
+    color: #8b5cf6;
+}
+
+/* ─── DEBUG TOGGLE FAB ─── */
+#debugToggle {
+    position: fixed;
+    bottom: 170px;
+    right: 20px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.15);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 55;
+    backdrop-filter: blur(8px);
+    transition: all 0.3s;
+}
+
+#debugToggle:hover {
+    background: rgba(139, 92, 246, 0.25);
+    transform: scale(1.05);
+}
+
+/* ─── RESPONSIVE ─── */
 @media (max-width: 480px) {
     .fab-button {
         width: 52px;
@@ -1588,7 +1900,359 @@ body {
         padding: 10px 12px;
     }
     .logo-img {
-        width: 38px;
-        height: 38px;
+        width: 28px;
+        height: 28px;
     }
+    #debugToggle {
+        bottom: 140px;
+        right: 14px;
+        width: 32px;
+        height: 32px;
+        font-size: 12px;
+    }
+}
+
+/* ─── THEME: LIGHT ─── */
+body.light-mode .app {
+    background: rgba(240, 242, 247, 0.85);
+    backdrop-filter: blur(28px) saturate(1.6);
+}
+body.light-mode {
+    background: #e8ecf1;
+}
+body.light-mode .msg.received {
+    background: rgba(0, 0, 0, 0.04);
+    color: #1a1832;
+    border-color: rgba(0, 0, 0, 0.08);
+}
+body.light-mode .msg.sent {
+    background: linear-gradient(135deg, #7c3aed, #5b21b6);
+    color: #fff;
+}
+body.light-mode .chat-item .info .name {
+    color: #1a1832;
+}
+body.light-mode .msg-preview {
+    color: #4a4a6a;
+}
+body.light-mode .chat-name {
+    color: #1a1832;
+}
+body.light-mode .chat-name small {
+    color: #4a4a6a;
+}
+body.light-mode .logo span {
+    background: linear-gradient(135deg, #6c3bf5, #3b82f6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+body.light-mode .setting-item span {
+    color: #1a1832;
+}
+body.light-mode .settings-header {
+    color: #6c3bf5;
+}
+body.light-mode .profile-name,
+body.light-mode .profile-phone {
+    color: #1a1832;
+}
+body.light-mode .dialpad-header span,
+body.light-mode .dialpad-display,
+body.light-mode .dial-btn {
+    color: #1a1832;
+}
+body.light-mode .dial-btn {
+    background: rgba(0, 0, 0, 0.03);
+}
+body.light-mode .dial-btn:hover {
+    background: rgba(108, 59, 245, 0.1);
+}
+body.light-mode .fab-button {
+    box-shadow: 0 8px 32px rgba(108, 59, 245, 0.3);
+}
+body.light-mode .status-badge {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.06);
+}
+body.light-mode .status-dot-badge {
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+body.light-mode .call-item .call-name {
+    color: #1a1832;
+}
+body.light-mode .call-item .call-detail {
+    color: #4a4a6a;
+}
+body.light-mode .search-wrap input {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.04);
+}
+body.light-mode .search-wrap input::placeholder {
+    color: #8a8a9a;
+}
+body.light-mode .chat-input input {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.04);
+}
+body.light-mode .chat-input input::placeholder {
+    color: #8a8a9a;
+}
+body.light-mode .list-footer .tab {
+    color: #6a6a8a;
+}
+body.light-mode .list-footer .tab.active {
+    background: rgba(108, 59, 245, 0.1);
+    color: #6c3bf5;
+}
+body.light-mode .profile-panel {
+    background: rgba(240, 242, 247, 0.96);
+}
+body.light-mode .close-profile {
+    color: #4a4a6a;
+}
+body.light-mode .profile-time {
+    color: #8a8a9a;
+}
+body.light-mode .setting-item {
+    border-color: rgba(0, 0, 0, 0.06);
+}
+body.light-mode .toggle-slider {
+    background: #c0c0d0;
+}
+body.light-mode .toggle-switch input:checked+.toggle-slider {
+    background: #6c3bf5;
+}
+body.light-mode .reg-header h3,
+body.light-mode .reg-field label {
+    color: #1a1832;
+}
+body.light-mode .reg-field input {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.04);
+}
+body.light-mode .reg-close {
+    color: #4a4a6a;
+}
+body.light-mode .otp-send {
+    color: #6c3bf5;
+}
+body.light-mode .lang-select {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.04);
+}
+body.light-mode .logout-btn {
+    color: #ef4444;
+}
+body.light-mode .ai-header h2 {
+    color: #1a1832;
+}
+body.light-mode .close-ai {
+    color: #4a4a6a;
+}
+body.light-mode .feat span {
+    color: #1a1832;
+}
+body.light-mode .feat small {
+    color: #4a4a6a;
+}
+body.light-mode .ai-prompt input {
+    color: #1a1832;
+    background: rgba(0, 0, 0, 0.04);
+}
+body.light-mode .ai-prompt input::placeholder {
+    color: #8a8a9a;
+}
+body.light-mode .dialpad {
+    background: rgba(240, 242, 247, 0.92);
+}
+body.light-mode .dialpad-header span {
+    color: #1a1832;
+}
+body.light-mode .dialpad-close {
+    color: #4a4a6a;
+}
+body.light-mode .dial-delete {
+    color: #ef4444;
+}
+body.light-mode .about-card {
+    background: rgba(240, 242, 247, 0.92);
+}
+body.light-mode .about-card span {
+    color: #1a1832;
+}
+body.light-mode .about-card a {
+    color: #4a4a6a;
+}
+
+/* ─── THEME: NEON ─── */
+body.neon-mode .app {
+    background: rgba(20, 8, 50, 0.85);
+    backdrop-filter: blur(28px) saturate(1.8);
+}
+body.neon-mode {
+    background: #0a0520;
+}
+body.neon-mode .msg.received {
+    background: rgba(139, 92, 246, 0.12);
+    color: #d4c4ff;
+    border-color: rgba(139, 92, 246, 0.2);
+}
+body.neon-mode .msg.sent {
+    background: linear-gradient(135deg, #7c3aed, #5b21b6);
+    color: #fff;
+}
+body.neon-mode .chat-item .info .name {
+    color: #e4d4ff;
+}
+body.neon-mode .msg-preview {
+    color: #9a8abe;
+}
+body.neon-mode .chat-name {
+    color: #e4d4ff;
+}
+body.neon-mode .logo span {
+    background: linear-gradient(135deg, #c084fc, #f472b6);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+body.neon-mode .setting-item span {
+    color: #d4c4ff;
+}
+body.neon-mode .settings-header {
+    color: #c084fc;
+}
+body.neon-mode .profile-name,
+body.neon-mode .profile-phone {
+    color: #d4c4ff;
+}
+body.neon-mode .dialpad-header span,
+body.neon-mode .dialpad-display,
+body.neon-mode .dial-btn {
+    color: #d4c4ff;
+}
+body.neon-mode .fab-button {
+    box-shadow: 0 0 40px rgba(192, 132, 252, 0.6), 0 0 80px rgba(192, 132, 252, 0.2);
+}
+body.neon-mode .status-badge {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.15);
+}
+body.neon-mode .status-dot-badge {
+    border: 1px solid rgba(192, 132, 252, 0.3);
+}
+body.neon-mode .call-item .call-name {
+    color: #e4d4ff;
+}
+body.neon-mode .call-item .call-detail {
+    color: #9a8abe;
+}
+body.neon-mode .search-wrap input {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.08);
+}
+body.neon-mode .search-wrap input::placeholder {
+    color: #6a5a8a;
+}
+body.neon-mode .chat-input input {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.08);
+}
+body.neon-mode .chat-input input::placeholder {
+    color: #6a5a8a;
+}
+body.neon-mode .list-footer .tab {
+    color: #6a5a8a;
+}
+body.neon-mode .list-footer .tab.active {
+    background: rgba(139, 92, 246, 0.15);
+    color: #c4b5fd;
+}
+body.neon-mode .profile-panel {
+    background: rgba(20, 8, 50, 0.96);
+}
+body.neon-mode .close-profile {
+    color: #6a5a8a;
+}
+body.neon-mode .profile-time {
+    color: #3a2a5a;
+}
+body.neon-mode .setting-item {
+    border-color: rgba(192, 132, 252, 0.08);
+}
+body.neon-mode .toggle-slider {
+    background: #3a2a5a;
+}
+body.neon-mode .toggle-switch input:checked+.toggle-slider {
+    background: #c084fc;
+}
+body.neon-mode .reg-header h3,
+body.neon-mode .reg-field label {
+    color: #d4c4ff;
+}
+body.neon-mode .reg-field input {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.08);
+}
+body.neon-mode .reg-close {
+    color: #6a5a8a;
+}
+body.neon-mode .otp-send {
+    color: #c084fc;
+}
+body.neon-mode .lang-select {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.08);
+}
+body.neon-mode .logout-btn {
+    color: #ef4444;
+}
+body.neon-mode .ai-header h2 {
+    color: #d4c4ff;
+}
+body.neon-mode .close-ai {
+    color: #6a5a8a;
+}
+body.neon-mode .feat span {
+    color: #d4c4ff;
+}
+body.neon-mode .feat small {
+    color: #6a5a8a;
+}
+body.neon-mode .ai-prompt input {
+    color: #d4c4ff;
+    background: rgba(139, 92, 246, 0.08);
+}
+body.neon-mode .ai-prompt input::placeholder {
+    color: #6a5a8a;
+}
+body.neon-mode .dialpad {
+    background: rgba(20, 8, 50, 0.92);
+}
+body.neon-mode .dialpad-header span {
+    color: #d4c4ff;
+}
+body.neon-mode .dialpad-close {
+    color: #6a5a8a;
+}
+body.neon-mode .dial-delete {
+    color: #ef4444;
+}
+body.neon-mode .about-card {
+    background: rgba(20, 8, 50, 0.92);
+}
+body.neon-mode .about-card span {
+    color: #d4c4ff;
+}
+body.neon-mode .about-card a {
+    color: #6a5a8a;
+}
+body.neon-mode .ai-btn {
+    background: linear-gradient(135deg, rgba(192, 132, 252, 0.25), rgba(244, 114, 182, 0.12)) !important;
+    color: #c084fc !important;
+    border-color: rgba(192, 132, 252, 0.2) !important;
+}
+body.neon-mode .ai-btn:hover {
+    background: linear-gradient(135deg, rgba(192, 132, 252, 0.4), rgba(244, 114, 182, 0.2)) !important;
 }
