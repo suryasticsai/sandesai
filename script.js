@@ -1049,6 +1049,64 @@ function initFabToggle() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ABOUT PANEL
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function toggleAboutPanel(open) {
+    const overlay = document.getElementById('aboutOverlay');
+    if (!overlay) return;
+    const card = overlay.querySelector('.about-card');
+    if (open) {
+        overlay.style.display = 'flex';
+        // trigger animation
+        setTimeout(() => { card.style.transform = 'scale(1) translateY(0)'; }, 20);
+        // reapply parallax on the card's children
+        if (window.Parallax) {
+            document.querySelectorAll('#aboutOverlay [data-depth]').forEach(el => {
+                new Parallax(el, {
+                    relativeInput: true,
+                    clipRelativeInput: true,
+                    calibrateX: true,
+                    calibrateY: true,
+                    invertX: false,
+                    invertY: false,
+                    limitX: 15,
+                    limitY: 15,
+                    scalarX: 6,
+                    scalarY: 6,
+                    frictionX: 0.1,
+                    frictionY: 0.1,
+                    originX: 0.5,
+                    originY: 0.5,
+                    precision: 1,
+                });
+            });
+        }
+    } else {
+        card.style.transform = 'scale(0.92) translateY(20px)';
+        setTimeout(() => { overlay.style.display = 'none'; }, 400);
+    }
+}
+
+// Attach event to the three-dot button
+document.addEventListener('DOMContentLoaded', function() {
+    const aboutBtn = document.getElementById('aboutBtn');
+    if (aboutBtn) {
+        aboutBtn.addEventListener('click', () => toggleAboutPanel(true));
+    }
+    const aboutClose = document.getElementById('aboutClose');
+    if (aboutClose) {
+        aboutClose.addEventListener('click', () => toggleAboutPanel(false));
+    }
+    // Close on click outside the card
+    const overlay = document.getElementById('aboutOverlay');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) toggleAboutPanel(false);
+        });
+    }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // AI OVERLAY TOGGLE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function toggleAiOverlay(open) {
