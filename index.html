@@ -256,6 +256,82 @@
         </div>
 
     </div>
+<!-- ===== INCOMING CALL OVERLAY ===== -->
+<div id="incomingOverlay" style="display:none;position:fixed;inset:0;z-index:900;flex-direction:column;justify-content:center;align-items:center;background:rgba(8,6,20,0.92);backdrop-filter:blur(16px);">
+    <div id="incomingAvatar" style="width:80px;height:80px;border-radius:50%;background:rgba(139,92,246,0.15);border:2px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin-bottom:0.8rem;">👤</div>
+    <div id="incomingName" style="font-family:'Inter',sans-serif;font-size:1.3rem;font-weight:700;color:#f0f2f7;">Unknown</div>
+    <div id="incomingNumber" style="color:#7a89a8;font-size:0.9rem;margin-top:0.15rem;">0000000000</div>
+    <div style="color:#5a6885;font-size:0.72rem;margin-top:0.4rem;"><i class="fas fa-arrow-up"></i> Incoming call</div>
+    <div style="display:flex;gap:2.6rem;margin-top:1.6rem;">
+        <button id="rejectBtn" style="width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;font-size:1.6rem;color:#fff;background:linear-gradient(160deg,#ff5470,#c2213f);display:flex;align-items:center;justify-content:center;"><i class="fas fa-phone-slash"></i></button>
+        <button id="answerBtn" style="width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;font-size:1.6rem;color:#fff;background:linear-gradient(160deg,#2fd992,#17a06a);display:flex;align-items:center;justify-content:center;animation:incomingPulse 1.8s infinite;"><i class="fas fa-phone"></i></button>
+    </div>
+</div>
+
+<!-- ===== CALL SCREEN ===== -->
+<div id="callScreen" style="display:none;position:fixed;inset:0;z-index:2000;flex-direction:column;justify-content:center;align-items:center;background:rgba(8,6,20,0.92);backdrop-filter:blur(24px);color:#fff;font-family:'Inter',sans-serif;padding:1.5rem;">
+    <div id="callRingWrap" style="position:relative;width:130px;height:130px;display:flex;align-items:center;justify-content:center;margin-bottom:0.7rem;">
+        <div class="call-ring" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid #8b5cf6;opacity:0;animation:callPulse 2.4s ease-out infinite;"></div>
+        <div class="call-ring" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid #8b5cf6;opacity:0;animation:callPulse 2.4s ease-out infinite;animation-delay:0.8s;"></div>
+        <div class="call-ring" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid #8b5cf6;opacity:0;animation:callPulse 2.4s ease-out infinite;animation-delay:1.6s;"></div>
+        <div id="callAvatar" style="width:100px;height:100px;border-radius:50%;background:linear-gradient(155deg,#141c30,#0e1424);border:2px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;font-size:2.5rem;z-index:1;color:#fff;">🤖</div>
+    </div>
+    <div id="callName" style="font-size:1.5rem;font-weight:700;">RAGina</div>
+    <div id="callNumber" style="color:rgba(255,255,255,0.4);font-size:0.9rem;">0000000000</div>
+    <div id="callSubstatus" style="color:#ffb648;font-size:0.8rem;min-height:1.2rem;margin-top:0.3rem;">Connecting…</div>
+    <div id="callTimer" style="font-size:2rem;color:#2fd992;margin:0.8rem 0 1.2rem;">00:00</div>
+    <div style="display:flex;gap:1.6rem;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+            <button id="muteBtn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:1.1rem;background:rgba(255,255,255,0.06);color:#fff;display:flex;align-items:center;justify-content:center;"><i class="fas fa-microphone"></i></button>
+            <span style="font-size:0.55rem;color:rgba(255,255,255,0.3);text-transform:uppercase;">Mute</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+            <button id="hangupCallBtn" style="width:64px;height:64px;border-radius:50%;border:none;cursor:pointer;font-size:1.4rem;color:#fff;background:linear-gradient(160deg,#ff5470,#c2213f);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 30px -6px rgba(255,84,112,0.55);"><i class="fas fa-phone-slash"></i></button>
+            <span style="font-size:0.55rem;color:rgba(255,255,255,0.3);text-transform:uppercase;">End</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+            <button id="speakerBtn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:1.1rem;background:rgba(255,255,255,0.06);color:#fff;display:flex;align-items:center;justify-content:center;"><i class="fas fa-volume-high"></i></button>
+            <span style="font-size:0.55rem;color:rgba(255,255,255,0.3);text-transform:uppercase;">Speaker</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+            <button id="videoBtn" style="width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;font-size:1.1rem;background:rgba(255,255,255,0.06);color:#fff;display:flex;align-items:center;justify-content:center;"><i class="fas fa-video"></i></button>
+            <span style="font-size:0.55rem;color:rgba(255,255,255,0.3);text-transform:uppercase;">Video</span>
+        </div>
+    </div>
+    <div id="callTranscript" style="width:100%;max-width:400px;max-height:120px;overflow-y:auto;background:rgba(0,0,0,0.3);border-radius:14px;padding:0.6rem 0.8rem;margin-top:0.9rem;font-size:0.74rem;color:rgba(255,255,255,0.7);font-family:'Inter',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.05) transparent;">
+        <div class="empty-hint" style="text-align:center;color:rgba(255,255,255,0.15);font-size:0.7rem;">Live transcript will appear here…</div>
+    </div>
+</div>
+
+<!-- ===== TOAST ===== -->
+<div id="toast"></div>
+<audio id="remoteAudio" autoplay playsinline style="display:none;"></audio>
+
+<style>
+    #incomingOverlay.active { display:flex !important; }
+    #callScreen.active { display:flex !important; }
+    #incomingOverlay .answer:active { transform:scale(0.92); }
+    #incomingOverlay .reject:active { transform:scale(0.92); }
+    .call-ring { animation: callPulse 2.4s ease-out infinite; }
+    @keyframes callPulse {
+        0% { transform: scale(0.8); opacity: 0.5; }
+        100% { transform: scale(1.8); opacity: 0; }
+    }
+    @keyframes incomingPulse {
+        50% { transform: scale(1.05); box-shadow: 0 0 40px rgba(47,217,146,0.3); }
+    }
+    #callTranscript::-webkit-scrollbar { width: 3px; }
+    #callTranscript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 10px; }
+    #callTranscript .msg { display:flex; gap:0.5rem; padding:0.2rem 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+    #callTranscript .who { font-weight:600; min-width:2.8rem; font-size:0.66rem; text-transform:uppercase; flex-shrink:0; }
+    #callTranscript .who.user { color:#8b5cf6; }
+    #callTranscript .who.ragina { color:#2fd992; }
+    .status-dot.online { background:#22c55e; box-shadow:0 0 12px rgba(34,197,94,0.4); }
+    .status-dot.offline { background:#64748b; }
+    .status-dot.connecting { background:#ffb648; animation: blinkStatus 1.1s infinite; }
+    @keyframes blinkStatus { 50% { opacity:0.35; } }
+    #dialCallBtn.disabled { opacity:0.35; pointer-events:none; }
+</style>
 
     <!-- External JavaScript -->
     <script src="script.js"></script>
