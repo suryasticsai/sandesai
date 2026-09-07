@@ -1,5 +1,5 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. PARALLAX (safe fallback)
+// 1. PARALLAX
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function initParallax() {
     try {
@@ -32,158 +32,19 @@
 })();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. DATA
+// 2. DATA – contacts & saved contacts
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const defaultContacts = [
-    {
-        id: 1,
-        name: 'Rahul',
-        img: 'https://i.pravatar.cc/150?img=1',
-        lastMsg: "Let's meet in the canteen",
-        time: '10:32',
-        unread: 2,
-        online: true,
-        color: 'linear-gradient(135deg,#f472b6,#ec4899)',
-        messages: [
-            { from: 'them', text: 'Hey! Are you free for lunch?', time: '10:15' },
-            { from: 'me', text: 'Yes, where should we go?', time: '10:18' },
-            { from: 'them', text: "Let's meet in the canteen", time: '10:32' },
-        ]
-    },
-    {
-        id: 2,
-        name: 'Priya',
-        img: 'https://i.pravatar.cc/150?img=5',
-        lastMsg: 'replied to your story',
-        time: '09:45',
-        unread: 0,
-        online: false,
-        color: 'linear-gradient(135deg,#60a5fa,#3b82f6)',
-        messages: [
-            { from: 'them', text: 'Loved your story! 😍', time: '09:40' },
-            { from: 'me', text: 'Thank you! 🙈', time: '09:42' },
-            { from: 'them', text: 'replied to your story', time: '09:45' },
-        ]
-    },
-    {
-        id: 3,
-        name: 'Rupali',
-        img: 'https://i.pravatar.cc/150?img=10',
-        lastMsg: 'Location',
-        time: '09:12',
-        unread: 0,
-        online: true,
-        color: 'linear-gradient(135deg,#34d399,#10b981)',
-        messages: [
-            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-            { from: 'me', text: "On my way!", time: '09:12' },
-            { from: 'them', text: 'Location', time: '09:12' },
-        ]
-    },
-    {
-        id: 4,
-        name: 'Tushar',
-        img: 'https://i.pravatar.cc/150?img=12',
-        lastMsg: 'What about movie tonight?',
-        time: 'Yesterday',
-        unread: 3,
-        online: true,
-        color: 'linear-gradient(135deg,#6c3bf5,#3b82f6)',
-        messages: [
-            { from: 'them', text: "Hey Tushar! Have to talk to you about tomorrow's plan. Let's catch up?", time: '02:00' },
-            { from: 'me', text: 'WASSUP BRO?', time: '02:10' },
-            { from: 'them', text: 'What about movie tonight?', time: 'Yesterday' },
-        ]
-    },
-    {
-        id: 5,
-        name: 'Kunal',
-        img: 'https://i.pravatar.cc/150?img=20',
-        lastMsg: 'Check India Won the match.',
-        time: 'Yesterday',
-        unread: 0,
-        online: false,
-        color: 'linear-gradient(135deg,#fb923c,#f97316)',
-        messages: [
-            { from: 'them', text: 'Did you see the match?', time: 'Yesterday' },
-            { from: 'me', text: 'No, what happened?', time: 'Yesterday' },
-            { from: 'them', text: 'Check India Won the match.', time: 'Yesterday' },
-        ]
-    },
-    {
-        id: 6,
-        name: 'Parul',
-        img: 'https://i.pravatar.cc/150?img=25',
-        lastMsg: 'uploading files',
-        time: 'Yesterday',
-        unread: 0,
-        online: true,
-        color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)',
-        messages: [
-            { from: 'them', text: "I'll send you the docs", time: 'Yesterday' },
-            { from: 'me', text: 'Sure, thanks!', time: 'Yesterday' },
-            { from: 'them', text: 'uploading files', time: 'Yesterday' },
-        ]
-    },
-    {
-        id: 7,
-        name: 'Jasmine',
-        img: 'https://i.pravatar.cc/150?img=30',
-        lastMsg: 'Are you done with the notes?',
-        time: 'Yesterday',
-        unread: 1,
-        online: false,
-        color: 'linear-gradient(135deg,#f472b6,#db2777)',
-        messages: [
-            { from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' },
-            { from: 'me', text: 'Almost done!', time: 'Yesterday' },
-        ]
-    },
-    {
-        id: 8,
-        name: 'Peter',
-        img: 'https://i.pravatar.cc/150?img=11',
-        lastMsg: 'Location',
-        time: '09:12',
-        unread: 0,
-        online: true,
-        color: 'linear-gradient(135deg,#34d399,#10b981)',
-        messages: [
-            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-            { from: 'me', text: "On my way!", time: '09:12' },
-            { from: 'them', text: 'Location', time: '09:12' },
-        ]
-    },
-    {
-        id: 9,
-        name: 'Shiva',
-        img: 'https://i.pravatar.cc/150?img=12',
-        lastMsg: 'Location',
-        time: '09:12',
-        unread: 0,
-        online: true,
-        color: 'linear-gradient(135deg,#34d399,#10b981)',
-        messages: [
-            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-            { from: 'me', text: "On my way!", time: '09:12' },
-            { from: 'them', text: 'Location', time: '09:12' },
-        ]
-    },
-    {
-        id: 10,
-        name: 'Kevin',
-        img: 'https://i.pravatar.cc/150?img=13',
-        lastMsg: 'Location',
-        time: '09:12',
-        unread: 0,
-        online: true,
-        color: 'linear-gradient(135deg,#34d399,#10b981)',
-        messages: [
-            { from: 'them', text: "I'm at the café near your office", time: '09:10' },
-            { from: 'me', text: "On my way!", time: '09:12' },
-            { from: 'them', text: 'Location', time: '09:12' },
-        ]
-    },
+    { id: 1, name: 'Rahul', img: 'https://i.pravatar.cc/150?img=1', lastMsg: "Let's meet in the canteen", time: '10:32', unread: 2, online: true, color: 'linear-gradient(135deg,#f472b6,#ec4899)', messages: [{ from: 'them', text: 'Hey! Are you free for lunch?', time: '10:15' }, { from: 'me', text: 'Yes, where should we go?', time: '10:18' }, { from: 'them', text: "Let's meet in the canteen", time: '10:32' }] },
+    { id: 2, name: 'Priya', img: 'https://i.pravatar.cc/150?img=5', lastMsg: 'replied to your story', time: '09:45', unread: 0, online: false, color: 'linear-gradient(135deg,#60a5fa,#3b82f6)', messages: [{ from: 'them', text: 'Loved your story! 😍', time: '09:40' }, { from: 'me', text: 'Thank you! 🙈', time: '09:42' }, { from: 'them', text: 'replied to your story', time: '09:45' }] },
+    { id: 3, name: 'Rupali', img: 'https://i.pravatar.cc/150?img=10', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
+    { id: 4, name: 'Tushar', img: 'https://i.pravatar.cc/150?img=12', lastMsg: 'What about movie tonight?', time: 'Yesterday', unread: 3, online: true, color: 'linear-gradient(135deg,#6c3bf5,#3b82f6)', messages: [{ from: 'them', text: "Hey Tushar! Have to talk to you about tomorrow's plan. Let's catch up?", time: '02:00' }, { from: 'me', text: 'WASSUP BRO?', time: '02:10' }, { from: 'them', text: 'What about movie tonight?', time: 'Yesterday' }] },
+    { id: 5, name: 'Kunal', img: 'https://i.pravatar.cc/150?img=20', lastMsg: 'Check India Won the match.', time: 'Yesterday', unread: 0, online: false, color: 'linear-gradient(135deg,#fb923c,#f97316)', messages: [{ from: 'them', text: 'Did you see the match?', time: 'Yesterday' }, { from: 'me', text: 'No, what happened?', time: 'Yesterday' }, { from: 'them', text: 'Check India Won the match.', time: 'Yesterday' }] },
+    { id: 6, name: 'Parul', img: 'https://i.pravatar.cc/150?img=25', lastMsg: 'uploading files', time: 'Yesterday', unread: 0, online: true, color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)', messages: [{ from: 'them', text: "I'll send you the docs", time: 'Yesterday' }, { from: 'me', text: 'Sure, thanks!', time: 'Yesterday' }, { from: 'them', text: 'uploading files', time: 'Yesterday' }] },
+    { id: 7, name: 'Jasmine', img: 'https://i.pravatar.cc/150?img=30', lastMsg: 'Are you done with the notes?', time: 'Yesterday', unread: 1, online: false, color: 'linear-gradient(135deg,#f472b6,#db2777)', messages: [{ from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' }, { from: 'me', text: 'Almost done!', time: 'Yesterday' }] },
+    { id: 8, name: 'Peter', img: 'https://i.pravatar.cc/150?img=11', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
+    { id: 9, name: 'Shiva', img: 'https://i.pravatar.cc/150?img=12', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
+    { id: 10, name: 'Kevin', img: 'https://i.pravatar.cc/150?img=13', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -264,19 +125,19 @@ function renderChatList() {
         div.className = 'chat-item';
         div.dataset.id = c.id;
         div.innerHTML = `
-                    <div class="avatar" style="background:${c.color};">
-                        <img src="${c.img}" alt="${c.name}" loading="lazy" />
-                        <span class="status-dot ${c.online ? '' : 'offline'}"></span>
-                    </div>
-                    <div class="info">
-                        <div class="name">${c.name} ${c.isSaved ? '⭐' : ''}${c.id === 4 ? '<span class="badge-ai">AI</span>' : ''}</div>
-                        <div class="msg-preview">${c.lastMsg}</div>
-                    </div>
-                    <div class="meta">
-                        <div class="time">${c.time}</div>
-                        ${c.unread > 0 ? `<div class="unread">${c.unread}</div>` : ''}
-                    </div>
-                `;
+            <div class="avatar" style="background:${c.color};">
+                <img src="${c.img}" alt="${c.name}" loading="lazy" />
+                <span class="status-dot ${c.online ? '' : 'offline'}"></span>
+            </div>
+            <div class="info">
+                <div class="name">${c.name} ${c.isSaved ? '⭐' : ''}${c.id === 4 ? '<span class="badge-ai">AI</span>' : ''}</div>
+                <div class="msg-preview">${c.lastMsg}</div>
+            </div>
+            <div class="meta">
+                <div class="time">${c.time}</div>
+                ${c.unread > 0 ? `<div class="unread">${c.unread}</div>` : ''}
+            </div>
+        `;
         div.addEventListener('click', () => openChat(c.id));
         container.appendChild(div);
     });
@@ -388,11 +249,10 @@ function openMyProfile() {
     document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
     document.getElementById('profileTime').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
 
-    // Remove old contacts list if exists
+    // Remove old contacts list in profile (optional)
     const oldList = document.getElementById('savedContactsList');
     if (oldList) oldList.remove();
 
-    // Saved contacts are now in the Calls tab, not here
     panel.classList.add('open');
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
@@ -435,8 +295,7 @@ function sendMessage() {
                 '📊 I can summarize this chat if you want!'
             ];
             const reply = replies[Math.floor(Math.random() * replies.length)];
-            contact.messages.push({ from: 'them', text: reply, time: new Date().getHours().toString().padStart(2, '0') +
-                    ':' + new Date().getMinutes().toString().padStart(2, '0') });
+            contact.messages.push({ from: 'them', text: reply, time: new Date().getHours().toString().padStart(2, '0') + ':' + new Date().getMinutes().toString().padStart(2, '0') });
             renderMessages();
             renderChatList();
         }, 800 + Math.random() * 1200);
@@ -444,7 +303,7 @@ function sendMessage() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// RENDER CALL LIST (grouped by contact, with call counts)
+// RENDER CALL LIST
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderCallList() {
     const container = document.getElementById('callList');
@@ -453,12 +312,10 @@ function renderCallList() {
     container.innerHTML = '';
 
     if (!logs || logs.length === 0) {
-        container.innerHTML =
-            '<div style="text-align:center;color:#5a6885;padding:2rem 0;font-size:0.85rem;"><i class="fas fa-phone" style="display:block;font-size:1.8rem;margin-bottom:0.5rem;opacity:0.3;"></i>No calls yet</div>';
+        container.innerHTML = '<div style="text-align:center;color:#5a6885;padding:2rem 0;font-size:0.85rem;"><i class="fas fa-phone" style="display:block;font-size:1.8rem;margin-bottom:0.5rem;opacity:0.3;"></i>No calls yet</div>';
         return;
     }
 
-    // Group calls by number
     const groups = {};
     logs.forEach(log => {
         const num = log.number;
@@ -466,7 +323,6 @@ function renderCallList() {
         groups[num].push(log);
     });
 
-    // Sort groups by most recent call
     const sortedGroups = Object.keys(groups).sort((a, b) => {
         const aLatest = groups[a].reduce((max, l) => Math.max(max, l.started || 0), 0);
         const bLatest = groups[b].reduce((max, l) => Math.max(max, l.started || 0), 0);
@@ -479,26 +335,14 @@ function renderCallList() {
         const callCount = calls.length;
         const contactName = getContactName(number) || number;
         const displayName = contactName === number ? number : contactName;
-
-        // Count missed calls in this group
         const missedCount = calls.filter(c => c.direction === 'missed').length;
         const hasMissed = missedCount > 0;
-
-        // Determine the latest call direction
         const dir = latest.direction || 'incoming';
-        const iconMap = {
-            missed: 'fa-phone-slash',
-            incoming: 'fa-phone-arrow-down',
-            outgoing: 'fa-phone-arrow-up'
-        };
-        const labelMap = {
-            missed: 'Missed',
-            incoming: 'Incoming',
-            outgoing: 'Outgoing'
-        };
-        const duration = latest.duration || '—';
-        const time = new Date(latest.started).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric',
-            hour: '2-digit', minute: '2-digit' });
+        const iconMap = { missed: 'fa-phone-slash', incoming: 'fa-phone-arrow-down', outgoing: 'fa-phone-arrow-up' };
+        const time = new Date(latest.started).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        const isSaved = getSavedContacts().some(c => c.number === number);
+        const dirIcon = hasMissed ? 'fa-phone-slash' : (dir === 'incoming' ? 'fa-phone-arrow-down' : 'fa-phone-arrow-up');
+        const dirClass = hasMissed ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
 
         const div = document.createElement('div');
         div.className = 'call-item';
@@ -507,43 +351,39 @@ function renderCallList() {
         div.style.cursor = 'pointer';
         div.dataset.number = number;
 
-        // Check if contact is saved
-        const isSaved = getSavedContacts().some(c => c.number === number);
-
-        // Direction icon
-        const dirIcon = hasMissed ? 'fa-phone-slash' : (dir === 'incoming' ? 'fa-phone-arrow-down' : 'fa-phone-arrow-up');
-        const dirClass = hasMissed ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
-
         div.innerHTML = `
-                    <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
-                        <div class="call-icon ${dirClass}" style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.9rem;background:${isSaved ? 'rgba(47,217,146,0.08)' : 'rgba(255,255,255,0.04)'};color:${isSaved ? '#2fd992' : '#a5b3d0'};">
-                            <i class="fas ${iconMap[dir] || 'fa-phone'}"></i>
-                        </div>
-                        <div style="flex:1;min-width:0;">
-                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                                <span style="font-weight:600;font-size:0.95rem;color:#f0f2f7;">${displayName}</span>
-                                ${callCount > 1 ? `<span style="font-size:0.7rem;color:#5a6885;font-weight:500;">(${callCount})</span>` : ''}
-                                ${isSaved ? '<span style="font-size:0.6rem;color:#2fd992;">⭐</span>' : ''}
-                            </div>
-                            <div style="font-size:0.75rem;color:#7a89a8;display:flex;align-items:center;gap:4px;margin-top:1px;">
-                                <i class="fas ${dirIcon}" style="font-size:0.6rem;color:${hasMissed ? '#ef4444' : '#5a6885'};"></i>
-                                ${hasMissed ? 'Missed · ' : ''}
-                                ${time}
-                            </div>
-                        </div>
-                        <div style="display:flex;gap:8px;flex-shrink:0;">
-                            <button class="call-action-btn" data-action="call" data-number="${number}" style="background:rgba(47,217,146,0.08);border:none;color:#2fd992;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-phone"></i></button>
-                            <button class="call-action-btn" data-action="message" data-number="${number}" style="background:rgba(139,92,246,0.08);border:none;color:#a78bfa;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-comment"></i></button>
-                        </div>
+            <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">
+                <div class="call-icon ${dirClass}" style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.9rem;background:${isSaved ? 'rgba(47,217,146,0.08)' : 'rgba(255,255,255,0.04)'};color:${isSaved ? '#2fd992' : '#a5b3d0'};">
+                    <i class="fas ${iconMap[dir] || 'fa-phone'}"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        <span style="font-weight:600;font-size:0.95rem;color:#f0f2f7;">${displayName}</span>
+                        ${callCount > 1 ? `<span style="font-size:0.7rem;color:#5a6885;font-weight:500;">(${callCount})</span>` : ''}
+                        ${isSaved ? '<span style="font-size:0.6rem;color:#2fd992;">⭐</span>' : ''}
                     </div>
-                `;
-        // Click on the whole entry opens details
+                    <div style="font-size:0.75rem;color:#7a89a8;display:flex;align-items:center;gap:4px;margin-top:1px;">
+                        <i class="fas ${dirIcon}" style="font-size:0.6rem;color:${hasMissed ? '#ef4444' : '#5a6885'};"></i>
+                        ${hasMissed ? 'Missed · ' : ''}
+                        ${time}
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-shrink:0;">
+                    <button class="call-action-btn" data-action="call" data-number="${number}" style="background:rgba(47,217,146,0.08);border:none;color:#2fd992;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-phone"></i></button>
+                    <button class="call-action-btn" data-action="message" data-number="${number}" style="background:rgba(139,92,246,0.08);border:none;color:#a78bfa;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-comment"></i></button>
+                </div>
+            </div>
+        `;
+
+        // Click on the whole entry opens details (for the latest call)
         div.addEventListener('click', (e) => {
             if (e.target.closest('.call-action-btn')) return;
-            openCallDetailsForNumber(number);
+            const logId = latest.id; // pass the latest call's ID
+            if (window.openCallDetails) {
+                window.openCallDetails(logId);
+            }
         });
 
-        // Action buttons
         div.querySelectorAll('.call-action-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -570,23 +410,27 @@ function renderCallList() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// CALL DETAILS / PROFILE VIEW
+// OPEN CALL DETAILS (with transcript, summary, export)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function openCallDetailsForNumber(number) {
+window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
-    const calls = logs.filter(l => l.number === number);
-    if (calls.length === 0) return;
+    const log = logs.find(l => l.id === logId);
+    if (!log) {
+        showToast('Call log not found');
+        return;
+    }
 
+    const number = log.number;
     const contactName = getContactName(number) || number;
     const isSaved = getSavedContacts().some(c => c.number === number);
+    const allCallsForNumber = logs.filter(l => l.number === number);
 
     const modal = document.getElementById('callDetailsModal');
     const card = document.getElementById('callDetailsCard');
 
-    // Set avatar
+    // Header
     const avatar = document.getElementById('detailsAvatar');
     avatar.textContent = contactName.charAt(0).toUpperCase();
-
     document.getElementById('detailsName').textContent = contactName === number ? 'Unknown' : contactName;
     document.getElementById('detailsNumber').textContent = '+91 ' + number;
 
@@ -604,45 +448,77 @@ function openCallDetailsForNumber(number) {
         saveBtn.style.background = 'linear-gradient(135deg,#7c3aed,#6d28d9)';
         saveBtn.style.color = '#fff';
     }
-
-    // Save button action
     saveBtn.onclick = () => {
         if (isSaved) {
             deleteContact(number);
             modal.classList.remove('active');
             renderCallList();
         } else {
-            // Open save contact modal
             openSaveContactModal(number);
             modal.classList.remove('active');
         }
     };
 
-    // Call history list
+    // Call history
     const historyContainer = document.getElementById('detailsCallList');
     historyContainer.innerHTML = '';
-    calls.slice(0, 10).forEach(call => {
+    allCallsForNumber.slice(0, 10).forEach(call => {
         const dir = call.direction || 'incoming';
-        const iconMap = {
-            missed: 'fa-phone-slash',
-            incoming: 'fa-phone-arrow-down',
-            outgoing: 'fa-phone-arrow-up'
-        };
-        const dirClass = dir === 'missed' ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
-        const time = new Date(call.started).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit',
-            minute: '2-digit' });
+        const iconMap = { missed: 'fa-phone-slash', incoming: 'fa-phone-arrow-down', outgoing: 'fa-phone-arrow-up' };
+        const time = new Date(call.started).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
         const item = document.createElement('div');
-        item.style.cssText =
-            'display:flex;align-items:center;gap:10px;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:0.8rem;';
+        item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:0.8rem;';
         item.innerHTML = `
-                    <i class="fas ${iconMap[dir] || 'fa-phone'}" style="color:${dir === 'missed' ? '#ef4444' : '#5a6885'};width:18px;"></i>
-                    <span style="flex:1;color:#f0f2f7;">${dir === 'missed' ? 'Missed' : dir === 'incoming' ? 'Incoming' : 'Outgoing'}</span>
-                    <span style="color:#5a6885;font-size:0.7rem;">${time}</span>
-                `;
+            <i class="fas ${iconMap[dir] || 'fa-phone'}" style="color:${dir === 'missed' ? '#ef4444' : '#5a6885'};width:18px;"></i>
+            <span style="flex:1;color:#f0f2f7;">${dir === 'missed' ? 'Missed' : dir === 'incoming' ? 'Incoming' : 'Outgoing'}</span>
+            <span style="color:#5a6885;font-size:0.7rem;">${time}</span>
+        `;
         historyContainer.appendChild(item);
     });
 
-    // Action buttons in details
+    // Transcript
+    const transcriptContainer = document.getElementById('detailsTranscript');
+    transcriptContainer.innerHTML = '';
+    if (log.messages && log.messages.length > 0) {
+        log.messages.forEach(m => {
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:0.2rem 0;border-bottom:1px solid rgba(255,255,255,0.04);';
+            const sender = m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live');
+            const color = m.role === 'user' ? '#8b5cf6' : '#2fd992';
+            div.innerHTML = `<span style="font-weight:600;color:${color};">${sender}:</span> ${m.text}`;
+            transcriptContainer.appendChild(div);
+        });
+    } else {
+        transcriptContainer.innerHTML = '<div style="color:#5a6885;text-align:center;padding:0.5rem;">No transcript for this call</div>';
+    }
+
+    // AI Summary
+    const summaryContainer = document.getElementById('detailsSummary');
+    if (log.summary) {
+        summaryContainer.innerHTML = `<i class="fas fa-wand-magic-sparkles" style="color:#ffb648;margin-right:0.3rem;"></i> ${log.summary}`;
+    } else {
+        summaryContainer.innerHTML = '<span style="color:#5a6885;">No AI summary available</span>';
+    }
+
+    // Export buttons
+    document.querySelectorAll('.details-export-btn').forEach(btn => {
+        btn.onclick = () => {
+            const format = btn.dataset.format;
+            if (format === 'share') {
+                const text = window.PremCall.logText ? window.PremCall.logText(log) : 'Call transcript';
+                if (navigator.share) {
+                    try { navigator.share({ title: 'Call Transcript', text }); return; } catch (e) {}
+                }
+                try { navigator.clipboard.writeText(text); showToast('Copied!'); } catch (e) {
+                    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+                }
+            } else {
+                if (window.PremCall) PremCall.exportLog(log, format);
+            }
+        };
+    });
+
+    // Action buttons (Call, Message, Video)
     modal.querySelectorAll('.details-action-btn').forEach(btn => {
         btn.onclick = () => {
             const action = btn.dataset.action;
@@ -664,13 +540,11 @@ function openCallDetailsForNumber(number) {
         };
     });
 
+    // Open modal
     modal.classList.add('active');
-    // Animate in
-    setTimeout(() => {
-        card.style.transform = 'translateY(0)';
-    }, 50);
+    setTimeout(() => { card.style.transform = 'translateY(0)'; }, 50);
 
-    // Close button
+    // Close handlers
     document.getElementById('detailsCloseModal').onclick = () => {
         modal.classList.remove('active');
         card.style.transform = 'translateY(100%)';
@@ -681,10 +555,10 @@ function openCallDetailsForNumber(number) {
             card.style.transform = 'translateY(100%)';
         }
     };
-}
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SAVE CONTACT FORM MODAL (replaces prompt)
+// SAVE CONTACT MODAL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openSaveContactModal(number) {
     const modal = document.getElementById('saveContactModal');
@@ -693,37 +567,29 @@ function openSaveContactModal(number) {
     document.getElementById('saveContactUsername').value = '';
     modal.classList.add('active');
 
-    document.getElementById('saveContactClose').onclick = () => {
-        modal.classList.remove('active');
-    };
-    modal.onclick = (e) => {
-        if (e.target === modal) modal.classList.remove('active');
-    };
+    document.getElementById('saveContactClose').onclick = () => { modal.classList.remove('active'); };
+    modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('active'); };
 
     document.getElementById('saveContactConfirm').onclick = () => {
         const name = document.getElementById('saveContactName').value.trim();
         const username = document.getElementById('saveContactUsername').value.trim();
         const phone = document.getElementById('saveContactPhone').value.trim();
-        if (!name) {
-            showToast('Please enter a name');
-            return;
-        }
-        if (!phone) {
-            showToast('Please enter a phone number');
-            return;
-        }
+        if (!name) { showToast('Please enter a name'); return; }
+        if (!phone) { showToast('Please enter a phone number'); return; }
         const saved = saveContact(name, phone, username);
         if (saved) {
             modal.classList.remove('active');
             renderCallList();
-            // Re-open details
-            openCallDetailsForNumber(phone);
+            // Re-open details for the saved contact
+            const logs = window.PremCall ? window.PremCall.getLogs() : [];
+            const log = logs.find(l => l.number === phone);
+            if (log) window.openCallDetails(log.id);
         }
     };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// FAB, DIALPAD, SETTINGS, THEME, REGISTRATION
+// FAB, DIALPAD
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFab() {
     const fab = document.getElementById('fabButton');
@@ -827,125 +693,25 @@ function applyTheme(theme) {
     const app = document.getElementById('app');
     const body = document.body;
     if (!app) return;
+    // Reset inline styles
     app.style.background = '';
     app.style.backdropFilter = '';
     body.style.background = '';
 
+    // Remove previous theme classes
+    body.classList.remove('light-mode', 'neon-mode');
     if (theme === 'light') {
-        app.style.background = 'rgba(240, 242, 247, 0.85)';
-        app.style.backdropFilter = 'blur(28px) saturate(1.6)';
-        body.style.background = '#e8ecf1';
-        document.querySelectorAll('.msg.received').forEach(el => {
-            el.style.background = 'rgba(0,0,0,0.04)';
-            el.style.color = '#1a1832';
-            el.style.borderColor = 'rgba(0,0,0,0.08)';
-        });
-        document.querySelectorAll('.msg.sent').forEach(el => {
-            el.style.background = 'linear-gradient(135deg,#7c3aed,#5b21b6)';
-            el.style.color = '#fff';
-        });
-        document.querySelectorAll('.chat-item .info .name').forEach(el => el.style.color = '#1a1832');
-        document.querySelectorAll('.msg-preview').forEach(el => el.style.color = '#4a4a6a');
-        document.querySelectorAll('.chat-name').forEach(el => el.style.color = '#1a1832');
-        document.querySelectorAll('.chat-name small').forEach(el => el.style.color = '#4a4a6a');
-        document.querySelectorAll('.logo span').forEach(el => {
-            el.style.background = 'linear-gradient(135deg, #6c3bf5, #3b82f6)';
-            el.style.webkitBackgroundClip = 'text';
-            el.style.webkitTextFillColor = 'transparent';
-        });
-        document.querySelectorAll('.setting-item span').forEach(el => el.style.color = '#1a1832');
-        document.querySelectorAll('.settings-header').forEach(el => el.style.color = '#6c3bf5');
-        document.querySelectorAll('.profile-name, .profile-phone').forEach(el => el.style.color = '#1a1832');
-        document.querySelectorAll('.dialpad-header span, .dialpad-display, .dial-btn').forEach(el => el.style.color =
-            '#1a1832');
-        document.getElementById('fabButton').style.boxShadow = '0 8px 32px rgba(108, 59, 245, 0.3)';
-        document.querySelectorAll('.status-badge').forEach(el => {
-            el.style.color = '#1a1832';
-            el.style.background = 'rgba(0,0,0,0.06)';
-        });
-        document.querySelectorAll('.status-dot-badge').forEach(el => {
-            el.style.border = '1px solid rgba(0,0,0,0.1)';
-        });
-        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#1a1832');
-        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#4a4a6a');
+        body.classList.add('light-mode');
     } else if (theme === 'neon') {
-        app.style.background = 'rgba(20, 8, 50, 0.85)';
-        app.style.backdropFilter = 'blur(28px) saturate(1.8)';
-        body.style.background = '#0a0520';
-        document.querySelectorAll('.msg.received').forEach(el => {
-            el.style.background = 'rgba(139, 92, 246, 0.12)';
-            el.style.color = '#d4c4ff';
-            el.style.borderColor = 'rgba(139, 92, 246, 0.2)';
-        });
-        document.querySelectorAll('.msg.sent').forEach(el => {
-            el.style.background = 'linear-gradient(135deg,#7c3aed,#5b21b6)';
-            el.style.color = '#fff';
-        });
-        document.querySelectorAll('.chat-item .info .name').forEach(el => el.style.color = '#e4d4ff');
-        document.querySelectorAll('.msg-preview').forEach(el => el.style.color = '#9a8abe');
-        document.querySelectorAll('.chat-name').forEach(el => el.style.color = '#e4d4ff');
-        document.querySelectorAll('.logo span').forEach(el => {
-            el.style.background = 'linear-gradient(135deg, #c084fc, #f472b6)';
-            el.style.webkitBackgroundClip = 'text';
-            el.style.webkitTextFillColor = 'transparent';
-        });
-        document.querySelectorAll('.setting-item span').forEach(el => el.style.color = '#d4c4ff');
-        document.querySelectorAll('.settings-header').forEach(el => el.style.color = '#c084fc');
-        document.querySelectorAll('.profile-name, .profile-phone').forEach(el => el.style.color = '#d4c4ff');
-        document.querySelectorAll('.dialpad-header span, .dialpad-display, .dial-btn').forEach(el => el.style.color =
-            '#d4c4ff');
-        document.getElementById('fabButton').style.boxShadow = '0 0 40px rgba(192, 132, 252, 0.6), 0 0 80px rgba(192, 132, 252, 0.2)';
-        document.querySelectorAll('.status-badge').forEach(el => {
-            el.style.color = '#d4c4ff';
-            el.style.background = 'rgba(139, 92, 246, 0.15)';
-        });
-        document.querySelectorAll('.status-dot-badge').forEach(el => {
-            el.style.border = '1px solid rgba(192, 132, 252, 0.3)';
-        });
-        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#e4d4ff');
-        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#9a8abe');
+        body.classList.add('neon-mode');
     } else {
-        // Dark (default)
-        app.style.background = 'rgba(12, 10, 28, 0.7)';
-        app.style.backdropFilter = 'blur(28px) saturate(1.6)';
-        body.style.background = '#07050e';
-        document.querySelectorAll('.msg.received').forEach(el => {
-            el.style.background = 'rgba(255, 255, 255, 0.06)';
-            el.style.color = '#eef0f5';
-            el.style.borderColor = 'rgba(255, 255, 255, 0.04)';
-        });
-        document.querySelectorAll('.msg.sent').forEach(el => {
-            el.style.background = 'linear-gradient(135deg,#7c3aed,#5b21b6)';
-            el.style.color = '#fff';
-        });
-        document.querySelectorAll('.chat-item .info .name').forEach(el => el.style.color = '#f0f2f7');
-        document.querySelectorAll('.msg-preview').forEach(el => el.style.color = '#7a89a8');
-        document.querySelectorAll('.chat-name').forEach(el => el.style.color = '#f0f2f7');
-        document.querySelectorAll('.logo span').forEach(el => {
-            el.style.background = 'linear-gradient(135deg, #a78bfa, #6ee7ff)';
-            el.style.webkitBackgroundClip = 'text';
-            el.style.webkitTextFillColor = 'transparent';
-        });
-        document.querySelectorAll('.setting-item span').forEach(el => el.style.color = '#d0d8ec');
-        document.querySelectorAll('.settings-header').forEach(el => el.style.color = '#a78bfa');
-        document.querySelectorAll('.profile-name, .profile-phone').forEach(el => el.style.color = '#f0f2f7');
-        document.querySelectorAll('.dialpad-header span, .dialpad-display, .dial-btn').forEach(el => el.style.color =
-            '#f0f2f7');
-        document.getElementById('fabButton').style.boxShadow = '0 8px 32px rgba(139, 92, 246, 0.4)';
-        document.querySelectorAll('.status-badge').forEach(el => {
-            el.style.color = '#7a89a8';
-            el.style.background = 'rgba(255,255,255,0.06)';
-        });
-        document.querySelectorAll('.status-dot-badge').forEach(el => {
-            el.style.border = '1px solid rgba(255,255,255,0.1)';
-        });
-        document.querySelectorAll('.call-item .call-name').forEach(el => el.style.color = '#f0f2f7');
-        document.querySelectorAll('.call-item .call-detail').forEach(el => el.style.color = '#7a89a8');
+        // dark is default
     }
+    // Additional dynamic updates if needed (already handled by CSS)
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// REGISTRATION
+// REGISTRATION (persisted, one-time)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initRegistration() {
     const overlay = document.getElementById('regOverlay');
@@ -954,9 +720,42 @@ function initRegistration() {
     const submitBtn = document.getElementById('regSubmit');
     const otpSend = document.getElementById('otpSend');
     const regPhone = document.getElementById('regPhone');
+
+    // Check if already registered – hide the "Registration" link if so
+    const savedUser = localStorage.getItem('neonUser');
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            if (user && user.registered) {
+                const link = document.querySelector('.registration-link');
+                if (link) link.style.display = 'none';
+                // Also update profile
+                document.getElementById('profileName').textContent = user.name;
+                document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone}`;
+                updateStatusBadge(user);
+                // Also register with PremCall if needed
+                if (window.PremCall && user.phone) {
+                    localStorage.setItem('premCallNumber', user.phone);
+                    localStorage.setItem('premCallVerified', 'true');
+                    localStorage.setItem('premCallRegisteredAt', String(Date.now()));
+                    PremCall.init(user.phone);
+                    document.getElementById('myNumberDisplay').textContent = user.phone;
+                    document.getElementById('headerStatusDot').className = 'status-dot connecting';
+                }
+            }
+        } catch (e) {}
+    }
+
     if (!openBtn || !closeBtn || !submitBtn || !otpSend) return;
 
-    openBtn.addEventListener('click', () => overlay.classList.add('open'));
+    openBtn.addEventListener('click', () => {
+        // Only open if not already registered
+        if (localStorage.getItem('neonUser')) {
+            showToast('Already registered');
+            return;
+        }
+        overlay.classList.add('open');
+    });
     closeBtn.addEventListener('click', () => overlay.classList.remove('open'));
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
 
@@ -987,9 +786,15 @@ function initRegistration() {
         localStorage.setItem('neonUser', JSON.stringify(userData));
         updateStatusBadge(userData);
         overlay.classList.remove('open');
+        // Update profile
         document.getElementById('profileName').textContent = name;
         document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${phone}`;
         showToast('✅ Registration successful! Welcome, ' + name);
+        // Hide the registration link
+        const link = document.querySelector('.registration-link');
+        if (link) link.style.display = 'none';
+
+        // Register with PremCall
         if (window.PremCall) {
             localStorage.setItem('premCallNumber', phone);
             localStorage.setItem('premCallVerified', 'true');
@@ -1049,6 +854,37 @@ function initFabToggle() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AI OVERLAY
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function toggleAiOverlay(open) {
+    const overlay = document.getElementById('aiOverlay');
+    if (overlay) overlay.classList.toggle('open', open);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TOAST
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function showToast(msg) {
+    let toast = document.getElementById('toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.style.cssText = 'position:fixed;bottom:calc(28px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%) translateY(20px);background:rgba(18,16,36,0.95);border:1px solid rgba(255,255,255,0.06);color:#eef0f5;padding:0.65rem 1.3rem;border-radius:40px;font-size:0.83rem;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:6000;max-width:88%;text-align:center;font-family:Inter,sans-serif;backdrop-filter:blur(12px);';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('show');
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(20px)';
+    }, 2200);
+}
+window.showToast = showToast;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ABOUT PANEL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function toggleAboutPanel(open) {
@@ -1057,9 +893,8 @@ function toggleAboutPanel(open) {
     const card = overlay.querySelector('.about-card');
     if (open) {
         overlay.style.display = 'flex';
-        // trigger animation
         setTimeout(() => { card.style.transform = 'scale(1) translateY(0)'; }, 20);
-        // reapply parallax on the card's children
+        // Reapply parallax on children
         if (window.Parallax) {
             document.querySelectorAll('#aboutOverlay [data-depth]').forEach(el => {
                 new Parallax(el, {
@@ -1087,56 +922,68 @@ function toggleAboutPanel(open) {
     }
 }
 
-// Attach event to the three-dot button
-document.addEventListener('DOMContentLoaded', function() {
-    const aboutBtn = document.getElementById('aboutBtn');
-    if (aboutBtn) {
-        aboutBtn.addEventListener('click', () => toggleAboutPanel(true));
-    }
-    const aboutClose = document.getElementById('aboutClose');
-    if (aboutClose) {
-        aboutClose.addEventListener('click', () => toggleAboutPanel(false));
-    }
-    // Close on click outside the card
-    const overlay = document.getElementById('aboutOverlay');
-    if (overlay) {
-        overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) toggleAboutPanel(false);
-        });
-    }
-});
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DEBUG CONSOLE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function initDebugConsole() {
+    const toggle = document.getElementById('debugToggle');
+    const consoleEl = document.getElementById('debugConsole');
+    const body = document.getElementById('consoleBody');
+    const closeBtn = document.getElementById('consoleClose');
+    const clearBtn = document.getElementById('consoleClear');
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// AI OVERLAY TOGGLE
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function toggleAiOverlay(open) {
-    const overlay = document.getElementById('aiOverlay');
-    if (overlay) overlay.classList.toggle('open', open);
-}
+    if (!toggle || !consoleEl) return;
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TOAST
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function showToast(msg) {
-    let toast = document.getElementById('toast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'toast';
-        toast.style.cssText =
-            'position:fixed;bottom:calc(28px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%) translateY(20px);background:rgba(18,16,36,0.95);border:1px solid rgba(255,255,255,0.06);color:#eef0f5;padding:0.65rem 1.3rem;border-radius:40px;font-size:0.83rem;opacity:0;pointer-events:none;transition:opacity .25s ease,transform .25s ease;z-index:6000;max-width:88%;text-align:center;font-family:Inter,sans-serif;backdrop-filter:blur(12px);';
-        document.body.appendChild(toast);
+    // Override console methods to pipe to the console panel
+    const originalLog = console.log;
+    const originalError = console.error;
+    const originalWarn = console.warn;
+
+    function addLog(message, type = 'info') {
+        if (!body) return;
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        const time = new Date().toLocaleTimeString();
+        entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+        body.appendChild(entry);
+        body.scrollTop = body.scrollHeight;
     }
-    toast.textContent = msg;
-    toast.classList.add('show');
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateX(-50%) translateY(0)';
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(-50%) translateY(20px)';
-    }, 2200);
+
+    console.log = function(...args) {
+        originalLog.apply(console, args);
+        addLog(args.join(' '), 'info');
+    };
+    console.error = function(...args) {
+        originalError.apply(console, args);
+        addLog(args.join(' '), 'error');
+    };
+    console.warn = function(...args) {
+        originalWarn.apply(console, args);
+        addLog(args.join(' '), 'warn');
+    };
+
+    // Also capture uncaught errors
+    window.addEventListener('error', function(e) {
+        addLog(e.message || 'Uncaught error', 'error');
+    });
+
+    let isOpen = false;
+    toggle.addEventListener('click', () => {
+        isOpen = !isOpen;
+        consoleEl.style.transform = isOpen ? 'translateY(0)' : 'translateY(100%)';
+        toggle.innerHTML = isOpen ? '<i class="fas fa-times"></i>' : '<i class="fas fa-terminal"></i>';
+    });
+
+    closeBtn.addEventListener('click', () => {
+        isOpen = false;
+        consoleEl.style.transform = 'translateY(100%)';
+        toggle.innerHTML = '<i class="fas fa-terminal"></i>';
+    });
+
+    clearBtn.addEventListener('click', () => {
+        if (body) body.innerHTML = '';
+    });
 }
-window.showToast = showToast;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // EVENT LISTENERS
@@ -1194,8 +1041,7 @@ function setupEventListeners() {
             const allContacts = getAllContacts();
             const contact = allContacts.find(c => c.id === activeContactId);
             if (!contact) return;
-            const summary =
-                `📊 This chat has ${(contact.messages || []).length} messages. Last: "${contact.messages[contact.messages.length-1]?.text || 'none'}"`;
+            const summary = `📊 This chat has ${(contact.messages || []).length} messages. Last: "${contact.messages[contact.messages.length-1]?.text || 'none'}"`;
             const now = new Date();
             const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
             if (!contact.messages) contact.messages = [];
@@ -1246,6 +1092,8 @@ function setupEventListeners() {
                 document.getElementById('callDetailsCard').style.transform = 'translateY(100%)';
             } else if (document.getElementById('saveContactModal')?.classList.contains('active')) {
                 document.getElementById('saveContactModal').classList.remove('active');
+            } else if (document.getElementById('aboutOverlay')?.classList.contains('active')) {
+                toggleAboutPanel(false);
             }
         }
     });
@@ -1288,6 +1136,14 @@ function setupEventListeners() {
         showToast('Call declined');
     });
 
+    // About panel buttons
+    const aboutBtn = document.getElementById('aboutBtn');
+    if (aboutBtn) aboutBtn.addEventListener('click', () => toggleAboutPanel(true));
+    const aboutClose = document.getElementById('aboutClose');
+    if (aboutClose) aboutClose.addEventListener('click', () => toggleAboutPanel(false));
+    const aboutOverlay = document.getElementById('aboutOverlay');
+    if (aboutOverlay) aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) toggleAboutPanel(false); });
+
     console.log('✅ Sandesai · All event listeners attached');
 }
 
@@ -1296,6 +1152,7 @@ function setupEventListeners() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function init() {
     try {
+        // Load saved user status for chat
         const savedUser = localStorage.getItem('neonUser');
         if (savedUser) {
             try {
@@ -1303,6 +1160,9 @@ function setupEventListeners() {
                 updateStatusBadge(user);
                 document.getElementById('profileName').textContent = user.name || 'User';
                 document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone || '+91 9995554443'}`;
+                // Hide registration link if registered
+                const link = document.querySelector('.registration-link');
+                if (link) link.style.display = 'none';
             } catch (e) {}
         }
 
@@ -1314,7 +1174,9 @@ function setupEventListeners() {
         renderChatList();
         renderCallList();
         setupEventListeners();
+        initDebugConsole();
 
+        // Check for registered number for calling
         const stored = localStorage.getItem('premCallNumber');
         const verified = localStorage.getItem('premCallVerified') === 'true';
         if (stored && verified && window.PremCall) {
@@ -1330,9 +1192,9 @@ function setupEventListeners() {
     }
 })();
 
-// Expose functions globally
+// Expose functions globally for app.js integration
 window.renderCallList = renderCallList;
-window.openCallDetailsForNumber = openCallDetailsForNumber;
+window.openCallDetails = window.openCallDetails;
 window.addHistoryEntry = function(number, direction, duration, logId) {
     setTimeout(renderCallList, 300);
 };
