@@ -148,7 +148,7 @@ He specialises in:
 3. Register with a 10‑digit phone number (OTP: 1234).
 4. Start chatting, calling, and exploring!
 ---
-Deployment
+## Deployment
 
 The app is deployed via GitHub Pages at suryasticsai.github.io/sandesai. To deploy your own instance:
 
@@ -158,17 +158,17 @@ The app is deployed via GitHub Pages at suryasticsai.github.io/sandesai. To depl
 
 ---
 
-🧪 Beta Status
+## 🧪 Beta Status
 
 Sandesai is currently in Beta (v0.1). We're actively developing new features and refining the existing ones.
 
-Known Limitations
+## Known Limitations
 
 · WebRTC calling requires both peers to be online simultaneously.
 · RAGina's knowledge base is limited to the pre‑loaded context.
 · OTP verification is demo‑only (use 1234).
 
-Roadmap
+## Roadmap
 
 ☐ End‑to‑end encryption for chats.
 ☐ Group calling and messaging.
@@ -178,7 +178,7 @@ Roadmap
 
 ---
 
-🤝 Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
 
@@ -190,13 +190,13 @@ Contributions are welcome! Please open an issue or submit a pull request.
 
 ---
 
-📄 License
+## 📄 License
 
 This project is licensed under the MIT License — see the LICENSE file for details.
 
 ---
 
-🙏 Acknowledgements
+## 🙏 Acknowledgements
 
 · PeerJS for making WebRTC simple.
 · Firebase for real‑time data sync.
@@ -206,7 +206,7 @@ This project is licensed under the MIT License — see the LICENSE file for deta
 
 ---
 
-📬 Feedback
+## 📬 Feedback
 
 Have a suggestion or found a bug? Open an issue or reach out to Surya directly via GitHub.
 
@@ -221,4 +221,3 @@ Built with ♥ by Surya
 ⬆ Back to top
 
 </div>
-```
