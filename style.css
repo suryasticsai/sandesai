@@ -1913,6 +1913,51 @@ body {
 }
 
 /* ─── THEME: LIGHT ─── */
+body.light-mode .call-item .call-name,
+body.light-mode .call-item .call-info .call-name,
+body.light-mode .call-item .call-detail,
+body.light-mode .call-item .call-time,
+body.light-mode .call-item .call-number,
+body.light-mode #callList .call-item span,
+body.light-mode #callList .call-item div {
+    color: #1a1832 !important;
+}
+
+body.light-mode .call-item .call-detail {
+    color: #4a4a6a !important;
+}
+
+body.light-mode .call-item .call-icon {
+    background: rgba(0, 0, 0, 0.06) !important;
+    color: #4a4a6a !important;
+}
+
+body.light-mode .call-item .call-icon.incoming {
+    color: #10b981 !important;
+    background: rgba(16, 185, 129, 0.12) !important;
+}
+body.light-mode .call-item .call-icon.outgoing {
+    color: #2563eb !important;
+    background: rgba(37, 99, 235, 0.12) !important;
+}
+body.light-mode .call-item .call-icon.missed {
+    color: #ef4444 !important;
+    background: rgba(239, 68, 68, 0.12) !important;
+}
+
+body.light-mode #callList .call-action-btn {
+    color: #4a4a6a !important;
+}
+body.light-mode #callList .call-action-btn:hover {
+    background: rgba(0, 0, 0, 0.06) !important;
+}
+body.light-mode #callDetailsCard,
+body.light-mode #callDetailsCard * {
+    color: #1a1832 !important;
+}
+body.light-mode #callDetailsCard .details-action-btn {
+    color: #4a4a6a !important;
+}
 body.light-mode .app {
     background: rgba(240, 242, 247, 0.85);
     backdrop-filter: blur(28px) saturate(1.6);
