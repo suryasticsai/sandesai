@@ -39,18 +39,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. CONTACTS DATA (default + saved)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const defaultContacts = [
-    { id: 1, name: 'Rahul', img: 'https://i.pravatar.cc/150?img=1', lastMsg: "Let's meet in the canteen", time: '10:32', unread: 2, online: true, color: 'linear-gradient(135deg,#f472b6,#ec4899)', messages: [{ from: 'them', text: 'Hey! Are you free for lunch?', time: '10:15' }, { from: 'me', text: 'Yes, where should we go?', time: '10:18' }, { from: 'them', text: "Let's meet in the canteen", time: '10:32' }] },
-    { id: 2, name: 'Priya', img: 'https://i.pravatar.cc/150?img=5', lastMsg: 'replied to your story', time: '09:45', unread: 0, online: false, color: 'linear-gradient(135deg,#60a5fa,#3b82f6)', messages: [{ from: 'them', text: 'Loved your story! 😍', time: '09:40' }, { from: 'me', text: 'Thank you! 🙈', time: '09:42' }, { from: 'them', text: 'replied to your story', time: '09:45' }] },
-    { id: 3, name: 'Rupali', img: 'https://i.pravatar.cc/150?img=10', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
-    { id: 4, name: 'Tushar', img: 'https://i.pravatar.cc/150?img=12', lastMsg: 'What about movie tonight?', time: 'Yesterday', unread: 3, online: true, color: 'linear-gradient(135deg,#6c3bf5,#3b82f6)', messages: [{ from: 'them', text: "Hey Tushar! Have to talk to you about tomorrow's plan. Let's catch up?", time: '02:00' }, { from: 'me', text: 'WASSUP BRO?', time: '02:10' }, { from: 'them', text: 'What about movie tonight?', time: 'Yesterday' }] },
-    { id: 5, name: 'Kunal', img: 'https://i.pravatar.cc/150?img=20', lastMsg: 'Check India Won the match.', time: 'Yesterday', unread: 0, online: false, color: 'linear-gradient(135deg,#fb923c,#f97316)', messages: [{ from: 'them', text: 'Did you see the match?', time: 'Yesterday' }, { from: 'me', text: 'No, what happened?', time: 'Yesterday' }, { from: 'them', text: 'Check India Won the match.', time: 'Yesterday' }] },
-    { id: 6, name: 'Parul', img: 'https://i.pravatar.cc/150?img=25', lastMsg: 'uploading files', time: 'Yesterday', unread: 0, online: true, color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)', messages: [{ from: 'them', text: "I'll send you the docs", time: 'Yesterday' }, { from: 'me', text: 'Sure, thanks!', time: 'Yesterday' }, { from: 'them', text: 'uploading files', time: 'Yesterday' }] },
-    { id: 7, name: 'Jasmine', img: 'https://i.pravatar.cc/150?img=30', lastMsg: 'Are you done with the notes?', time: 'Yesterday', unread: 1, online: false, color: 'linear-gradient(135deg,#f472b6,#db2777)', messages: [{ from: 'them', text: 'Are you done with the notes?', time: 'Yesterday' }, { from: 'me', text: 'Almost done!', time: 'Yesterday' }] },
-    { id: 8, name: 'Peter', img: 'https://i.pravatar.cc/150?img=11', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
-    { id: 9, name: 'Shiva', img: 'https://i.pravatar.cc/150?img=12', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
-    { id: 10, name: 'Kevin', img: 'https://i.pravatar.cc/150?img=13', lastMsg: 'Location', time: '09:12', unread: 0, online: true, color: 'linear-gradient(135deg,#34d399,#10b981)', messages: [{ from: 'them', text: "I'm at the café near your office", time: '09:10' }, { from: 'me', text: "On my way!", time: '09:12' }, { from: 'them', text: 'Location', time: '09:12' }] },
-];
+const defaultContacts = []; // add array for dummy data
 
 function getSavedContacts() {
     try { return JSON.parse(localStorage.getItem('savedContacts')) || []; } catch (e) { return []; }
@@ -113,15 +102,15 @@ function getAllContacts() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let activeContactId = 4;
 let currentTab = 'chat';
-let activeChatPeer = null;   // phone number of open chat
-let firestoreConversations = {}; // cached conversations per peer
+let activeChatPeer = null;
+let firestoreConversations = {};
 let conversationListeners = {};
 let firebaseReady = false;
 let db = null, auth = null;
 let myNumber = null;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. FIREBASE MESSAGING (Core)
+// 4. FIREBASE MESSAGING (with auto‑repair on number mismatch)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
@@ -168,9 +157,21 @@ function startMessaging() {
             if (doc.exists) {
                 const mapped = doc.data().number;
                 if (mapped !== myNumber) {
-                    return Promise.reject(new Error('Number mismatch: ' + mapped + ' vs ' + myNumber));
+                    // Auto-repair: update mapping to new number
+                    console.warn('Number mismatch: ' + mapped + ' vs ' + myNumber + '. Updating mapping...');
+                    const batch = db.batch();
+                    batch.update(db.collection('uids').doc(uid), { number: myNumber });
+                    batch.set(db.collection('users').doc(myNumber), { uid: uid });
+                    // Optionally delete old user doc? We'll keep it for history.
+                    return batch.commit().then(() => {
+                        console.log('✅ Mapping updated to new number: ' + myNumber);
+                        showToast('Number updated in messaging system');
+                    });
+                } else {
+                    return Promise.resolve();
                 }
             } else {
+                // Create mapping
                 const batch = db.batch();
                 batch.set(db.collection('users').doc(myNumber), { uid: uid });
                 batch.set(db.collection('uids').doc(uid), { number: myNumber });
@@ -185,7 +186,6 @@ function startMessaging() {
             db.collection('presence').doc(myNumber).set({ lastSeen: Date.now() }, { merge: true });
         }, 15000);
 
-        // Listen to conversation list
         listenConversationsList();
         renderChatList();
     }).catch(err => {
@@ -212,10 +212,8 @@ function listenConversationsList() {
                     };
                 }
             });
-            // Update conversations with latest messages
             Object.keys(latestByPeer).forEach(peer => {
                 if (!firestoreConversations[peer]) firestoreConversations[peer] = [];
-                // We'll keep the full history from the per-peer listener; this just triggers re-render.
                 if (!window._firestoreLastMessages) window._firestoreLastMessages = {};
                 window._firestoreLastMessages[peer] = {
                     text: latestByPeer[peer].text,
@@ -233,9 +231,9 @@ function listenPeerConversation(peer) {
     if (conversationListeners[peer]) return;
     if (!db || !myNumber) return;
     const convId = [myNumber, peer].sort().join('_');
+    // Removed .orderBy('timestamp') to avoid index requirement – sort client‑side
     const unsub = db.collection('messages')
         .where('conversationId', '==', convId)
-        .orderBy('timestamp', 'asc')
         .onSnapshot(snapshot => {
             const msgs = snapshot.docs.map(doc => {
                 const d = doc.data();
@@ -247,6 +245,7 @@ function listenPeerConversation(peer) {
                     from: d.from,
                 };
             });
+            msgs.sort((a, b) => a.timestamp - b.timestamp);
             firestoreConversations[peer] = msgs;
             if (activeChatPeer === peer) {
                 renderMessages();
@@ -276,15 +275,13 @@ function sendMessageToFirestore(peer, text) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. RENDER FUNCTIONS (Chat List, Messages, Call List)
+// 5. RENDER FUNCTIONS (Chat List, Messages, Call List, Profile)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderChatList() {
     const container = document.getElementById('chatList');
     if (!container) return;
 
-    // Build list: start with all contacts (default + saved)
     const allContacts = getAllContacts();
-    // Also include any numbers from Firestore conversations not in contacts
     const convPeers = Object.keys(firestoreConversations);
     convPeers.forEach(num => {
         if (!allContacts.find(c => c.number === num)) {
@@ -304,7 +301,6 @@ function renderChatList() {
         }
     });
 
-    // Update lastMsg/time from Firestore
     allContacts.forEach(c => {
         if (c.number && firestoreConversations[c.number] && firestoreConversations[c.number].length > 0) {
             const last = firestoreConversations[c.number][firestoreConversations[c.number].length - 1];
@@ -313,7 +309,6 @@ function renderChatList() {
         }
     });
 
-    // Sort by latest message timestamp (or default)
     allContacts.sort((a, b) => {
         const timeA = (a.number && firestoreConversations[a.number] && firestoreConversations[a.number].length > 0)
             ? firestoreConversations[a.number][firestoreConversations[a.number].length - 1].timestamp || 0
@@ -345,7 +340,9 @@ function renderChatList() {
                 ${c.unread > 0 ? `<div class="unread">${c.unread}</div>` : ''}
             </div>
         `;
-        div.addEventListener('click', () => {
+        // Click handler – opens chat view, NOT profile
+        div.addEventListener('click', (e) => {
+            e.stopPropagation();
             const number = c.number || c.name;
             if (number) openChat(number);
         });
@@ -376,7 +373,6 @@ function renderMessages() {
     });
     container.scrollTop = container.scrollHeight;
 
-    // Update header
     const name = getContactName(activeChatPeer) || activeChatPeer;
     document.getElementById('chatName').textContent = name;
     document.getElementById('chatStatus').textContent = `Chatting with ${activeChatPeer}`;
@@ -388,7 +384,6 @@ function renderMessages() {
 function renderCallList() {
     const container = document.getElementById('callList');
     if (!container) return;
-    // Use PremCall.getLogs() from app.js
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
     container.innerHTML = '';
 
@@ -486,7 +481,41 @@ function renderCallList() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. NAVIGATION & CHAT ACTIONS
+// 6. PROFILE VIEW (full panel)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderProfileView() {
+    // Update the profile panel content
+    const savedUser = localStorage.getItem('neonUser');
+    let userName = 'User', userPhone = '';
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            userName = user.name || 'User';
+            userPhone = user.phone || '';
+        } catch (e) {}
+    }
+    const premNum = localStorage.getItem('premCallNumber');
+    if (premNum && !userPhone) userPhone = premNum;
+
+    document.getElementById('profileAvatarText').textContent = userName.charAt(0).toUpperCase();
+    document.getElementById('profileNameFull').textContent = userName;
+    document.getElementById('profilePhoneFull').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
+    document.getElementById('profileTimeFull').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
+
+    // Update registration link visibility
+    const link = document.querySelector('.registration-link');
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            if (user && user.registered) {
+                if (link) link.style.display = 'none';
+            }
+        } catch (e) {}
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. NAVIGATION & CHAT ACTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function switchTab(tab) {
     currentTab = tab;
@@ -495,21 +524,25 @@ function switchTab(tab) {
     });
     const chatPanel = document.getElementById('chatPanel');
     const callsPanel = document.getElementById('callsPanel');
+    const profilePanel = document.getElementById('profilePanel');
     if (tab === 'chat') {
         chatPanel.style.display = 'block';
         callsPanel.style.display = 'none';
+        profilePanel.style.display = 'none';
         document.getElementById('searchInput').placeholder = 'Search chats...';
         renderChatList();
     } else if (tab === 'calls') {
         chatPanel.style.display = 'none';
         callsPanel.style.display = 'block';
+        profilePanel.style.display = 'none';
         document.getElementById('searchInput').placeholder = 'Search calls...';
         renderCallList();
     } else if (tab === 'me') {
-        openMyProfile();
-        document.querySelectorAll('.list-footer .tab').forEach(el => {
-            el.classList.toggle('active', el.dataset.tab === 'me');
-        });
+        chatPanel.style.display = 'none';
+        callsPanel.style.display = 'none';
+        profilePanel.style.display = 'block';
+        document.getElementById('searchInput').placeholder = 'Search...';
+        renderProfileView();
     }
 }
 
@@ -522,22 +555,12 @@ function openChat(peer) {
     document.getElementById('chatView').classList.add('open');
     document.getElementById('listView').classList.add('shrink');
     renderMessages();
-    // Update header
     const name = getContactName(peer) || peer;
     document.getElementById('chatName').textContent = name;
     document.getElementById('chatStatus').textContent = `Chatting with ${peer}`;
     const avatarEl = document.getElementById('chatAvatar');
     avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
     avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
-    // Update profile panel (contact details)
-    const contact = getAllContacts().find(c => c.number === peer);
-    if (contact) {
-        document.getElementById('profileAvatar').style.background = contact.color;
-        document.getElementById('profileAvatar').innerHTML = `<img src="${contact.img}" alt="${contact.name}" />`;
-        document.getElementById('profileName').textContent = contact.name;
-        document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${peer}`;
-        document.getElementById('profileTime').innerHTML = `<i class="far fa-clock"></i> Last active: ${contact.time || 'Just now'}`;
-    }
     document.getElementById('msgInput').focus();
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
@@ -555,7 +578,6 @@ function sendMessage() {
     const text = input.value.trim();
     if (!text || !activeChatPeer || !firebaseReady) return;
     const peer = activeChatPeer;
-    // Optimistically add to UI
     if (!firestoreConversations[peer]) firestoreConversations[peer] = [];
     const tempMsg = {
         text: text,
@@ -566,51 +588,12 @@ function sendMessage() {
     firestoreConversations[peer].push(tempMsg);
     renderMessages();
     input.value = '';
-    // Send to Firestore
     sendMessageToFirestore(peer, text);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. PROFILE, SETTINGS, THEME
+// 8. SETTINGS & THEME (unchanged)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function openMyProfile() {
-    const panel = document.getElementById('profilePanel');
-    const savedUser = localStorage.getItem('neonUser');
-    let userName = 'User', userPhone = '';
-    if (savedUser) {
-        try {
-            const user = JSON.parse(savedUser);
-            userName = user.name || 'User';
-            userPhone = user.phone || '';
-        } catch (e) {}
-    }
-    const premNum = localStorage.getItem('premCallNumber');
-    if (premNum && !userPhone) userPhone = premNum;
-
-    const avatarEl = document.getElementById('profileAvatar');
-    avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
-    avatarEl.innerHTML = `<span style="font-size:2.5rem;font-weight:700;color:#fff;">${userName.charAt(0).toUpperCase()}</span>`;
-    document.getElementById('profileName').textContent = userName;
-    document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
-    document.getElementById('profileTime').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
-
-    const oldList = document.getElementById('savedContactsList');
-    if (oldList) oldList.remove();
-
-    panel.classList.add('open');
-    const savedTheme = localStorage.getItem('neonTheme') || 'dark';
-    applyTheme(savedTheme);
-}
-
-function toggleProfile(open) {
-    if (!open) {
-        document.getElementById('profilePanel').classList.remove('open');
-        if (currentTab === 'me') switchTab('chat');
-    } else {
-        document.getElementById('profilePanel').classList.add('open');
-    }
-}
-
 function initSettings() {
     document.querySelectorAll('.theme-btn').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -665,11 +648,10 @@ function applyTheme(theme) {
     body.classList.remove('light-mode', 'neon-mode');
     if (theme === 'light') body.classList.add('light-mode');
     else if (theme === 'neon') body.classList.add('neon-mode');
-    // dark is default
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. REGISTRATION (persisted, one-time)
+// 9. REGISTRATION (unchanged)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initRegistration() {
     const overlay = document.getElementById('regOverlay');
@@ -686,8 +668,7 @@ function initRegistration() {
             if (user && user.registered) {
                 const link = document.querySelector('.registration-link');
                 if (link) link.style.display = 'none';
-                document.getElementById('profileName').textContent = user.name;
-                document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone}`;
+                renderProfileView();
                 updateStatusBadge(user);
                 if (window.PremCall && user.phone) {
                     localStorage.setItem('premCallNumber', user.phone);
@@ -741,8 +722,7 @@ function initRegistration() {
         localStorage.setItem('neonUser', JSON.stringify(userData));
         updateStatusBadge(userData);
         overlay.classList.remove('open');
-        document.getElementById('profileName').textContent = name;
-        document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${phone}`;
+        renderProfileView();
         showToast('✅ Registration successful! Welcome, ' + name);
         const link = document.querySelector('.registration-link');
         if (link) link.style.display = 'none';
@@ -787,7 +767,7 @@ function updateStatusBadge(user) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. FAB & DIALPAD
+// 10. FAB, DIALPAD, FAB TOGGLE, AI, TOAST, ABOUT, DEBUG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFab() {
     const fab = document.getElementById('fabButton');
@@ -840,9 +820,6 @@ function initDialpad() {
     });
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. FAB TOGGLE
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFabToggle() {
     const toggle = document.getElementById('fabToggle');
     const fab = document.getElementById('fabButton');
@@ -860,17 +837,11 @@ function initFabToggle() {
     });
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. AI OVERLAY
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function toggleAiOverlay(open) {
     const overlay = document.getElementById('aiOverlay');
     if (overlay) overlay.classList.toggle('open', open);
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. TOAST (shared with app.js)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function showToast(msg) {
     let toast = document.getElementById('toast');
     if (!toast) {
@@ -889,11 +860,8 @@ function showToast(msg) {
         toast.style.transform = 'translateX(-50%) translateY(20px)';
     }, 2200);
 }
-window.showToast = showToast; // expose for app.js
+window.showToast = showToast;
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. ABOUT PANEL
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function toggleAboutPanel(open) {
     const overlay = document.getElementById('aboutOverlay');
     if (!overlay) return;
@@ -928,9 +896,6 @@ function toggleAboutPanel(open) {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. DEBUG CONSOLE
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initDebugConsole() {
     const toggle = document.getElementById('debugToggle');
     const consoleEl = document.getElementById('debugConsole');
@@ -990,7 +955,7 @@ function initDebugConsole() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. CALL DETAILS MODAL (uses PremCall logs)
+// 11. CALL DETAILS MODAL (unchanged)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
@@ -1125,7 +1090,7 @@ window.openCallDetails = function(logId) {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. SAVE CONTACT MODAL
+// 12. SAVE CONTACT MODAL
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openSaveContactModal(number) {
     const modal = document.getElementById('saveContactModal');
@@ -1155,7 +1120,7 @@ function openSaveContactModal(number) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. EVENT LISTENERS
+// 13. EVENT LISTENERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function setupEventListeners() {
     const backBtn = document.getElementById('backBtn');
@@ -1197,12 +1162,18 @@ function setupEventListeners() {
         });
     }
 
+    // Profile button in chat header – now switches to Me tab
     const openProfileBtn = document.getElementById('openProfileBtn');
-    if (openProfileBtn) openProfileBtn.addEventListener('click', () => toggleProfile(true));
-    const closeProfileBtn = document.getElementById('closeProfileBtn');
-    if (closeProfileBtn) closeProfileBtn.addEventListener('click', () => toggleProfile(false));
-    const profilePanel = document.getElementById('profilePanel');
-    if (profilePanel) profilePanel.addEventListener('click', (e) => { if (e.target === e.currentTarget) toggleProfile(false); });
+    if (openProfileBtn) openProfileBtn.addEventListener('click', () => {
+        if (document.getElementById('chatView').classList.contains('open')) {
+            closeChat();
+        }
+        switchTab('me');
+    });
+
+    // Close profile via the close button is no longer needed; we use the back button or tab switch.
+    // But we keep the old close-profile button for compatibility? It's not in the new profile view.
+    // We removed the slide-out panel, so we don't need the close button.
 
     const aiSuggestion = document.getElementById('aiSuggestion');
     if (aiSuggestion) {
@@ -1247,9 +1218,8 @@ function setupEventListeners() {
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (document.getElementById('profilePanel')?.classList.contains('open')) toggleProfile(false);
+            if (document.getElementById('chatView')?.classList.contains('open')) closeChat();
             else if (document.getElementById('aiOverlay')?.classList.contains('open')) toggleAiOverlay(false);
-            else if (document.getElementById('chatView')?.classList.contains('open')) closeChat();
             else if (document.getElementById('dialpadOverlay')?.classList.contains('open')) {
                 document.getElementById('dialpadOverlay').classList.remove('open');
                 document.getElementById('dialpadDisplay').textContent = '';
@@ -1266,7 +1236,7 @@ function setupEventListeners() {
         }
     });
 
-    // Call screen buttons are handled in app.js, but we keep them here for UI consistency
+    // Call screen buttons (handled by app.js, but we keep UI)
     document.getElementById('hangupCallBtn')?.addEventListener('click', () => {
         if (window.PremCall) PremCall.hangup();
         if (window.vibrate) vibrate(15);
@@ -1299,7 +1269,6 @@ function setupEventListeners() {
         showToast('Call declined');
     });
 
-    // About panel buttons
     const aboutBtn = document.getElementById('aboutBtn');
     if (aboutBtn) aboutBtn.addEventListener('click', () => toggleAboutPanel(true));
     const aboutClose = document.getElementById('aboutClose');
@@ -1307,7 +1276,6 @@ function setupEventListeners() {
     const aboutOverlay = document.getElementById('aboutOverlay');
     if (aboutOverlay) aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) toggleAboutPanel(false); });
 
-    // New Chat button
     const newChatBtn = document.getElementById('newChatBtn');
     if (newChatBtn) {
         newChatBtn.addEventListener('click', function() {
@@ -1332,7 +1300,7 @@ function setupEventListeners() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. INIT
+// 14. INIT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function init() {
     try {
@@ -1341,8 +1309,7 @@ function setupEventListeners() {
             try {
                 const user = JSON.parse(savedUser);
                 updateStatusBadge(user);
-                document.getElementById('profileName').textContent = user.name || 'User';
-                document.getElementById('profilePhone').innerHTML = `<i class="fas fa-phone"></i> ${user.phone || '+91 9995554443'}`;
+                renderProfileView();
                 const link = document.querySelector('.registration-link');
                 if (link) link.style.display = 'none';
             } catch (e) {}
@@ -1358,7 +1325,6 @@ function setupEventListeners() {
         setupEventListeners();
         initDebugConsole();
 
-        // Check for registered number for calling
         const stored = localStorage.getItem('premCallNumber');
         const verified = localStorage.getItem('premCallVerified') === 'true';
         if (stored && verified && window.PremCall) {
@@ -1368,6 +1334,9 @@ function setupEventListeners() {
         } else if (window.PremCall) {
             PremCall.init('0000000000');
         }
+
+        // Ensure correct tab is shown (default chat)
+        switchTab('chat');
 
         console.log('🚀 Sandesai · All systems ready');
     } catch (err) {
