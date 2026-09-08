@@ -7,9 +7,7 @@
     <link rel="icon" type="image/png" href="sandesai-logo.png" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-    <!-- External CSS -->
     <link rel="stylesheet" href="style.css" />
-    <!-- jQuery + Parallax + PeerJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous">
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous">
@@ -41,6 +39,7 @@
                         <span id="statusText">Offline</span>
                     </span>
                     <span class="status-dot" id="headerStatusDot"></span>
+                    <span id="myNumberDisplay" style="font-size:0.7rem;color:#7a89a8;cursor:pointer;margin-left:4px;">—</span>
                 </div>
                 <div class="actions">
                     <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>
@@ -169,7 +168,7 @@
             <div class="profile-time" id="profileTime"><i class="far fa-clock"></i> Last active: 12:30</div>
         </div>
 
-        <!-- ===== REGISTRATION FORM (with logo) ===== -->
+        <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
                 <div class="reg-header">
@@ -304,15 +303,13 @@
             </div>
         </div>
 
-        <!-- ===== CALL DETAILS MODAL (with transcript, summary, export) ===== -->
+        <!-- ===== CALL DETAILS MODAL ===== -->
         <div id="callDetailsModal" style="display:none;position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);align-items:flex-end;justify-content:center;padding:1rem;">
             <div id="callDetailsCard" style="background:rgba(18,16,36,0.96);border-radius:28px 28px 0 0;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;padding:1.5rem 1.2rem 1.2rem;border:1px solid rgba(255,255,255,0.04);box-shadow:0 -20px 60px rgba(0,0,0,0.5);transform:translateY(100%);transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1);">
-
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                     <span style="font-size:1.1rem;font-weight:700;">Call info</span>
                     <button id="detailsCloseModal" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:32px;height:32px;border-radius:50%;font-size:1.2rem;cursor:pointer;">✕</button>
                 </div>
-
                 <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
                     <div id="detailsAvatar" style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:700;color:#fff;flex-shrink:0;">👤</div>
                     <div>
@@ -325,41 +322,31 @@
                         <button class="details-action-btn" data-action="video" style="background:rgba(79,140,247,0.12);border:none;color:#4f8cf7;width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:1rem;"><i class="fas fa-video"></i></button>
                     </div>
                 </div>
-
                 <div id="detailsSaveRow" style="display:flex;align-items:center;gap:0.6rem;background:rgba(255,255,255,0.03);border-radius:14px;padding:0.6rem 0.8rem;margin-bottom:1rem;border:1px solid rgba(255,255,255,0.04);">
                     <span style="font-size:0.8rem;color:#7a89a8;" id="detailsSaveStatus">Not a contact</span>
                     <button id="detailsSaveBtn" style="margin-left:auto;padding:0.25rem 1rem;border-radius:20px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:0.75rem;font-weight:600;cursor:pointer;">Save</button>
                 </div>
-
-                <!-- Call History -->
                 <div id="detailsCallHistory" style="margin-top:0.5rem;">
                     <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">Call history</div>
                     <div id="detailsCallList"></div>
                 </div>
-
-                <!-- Transcript -->
                 <div id="detailsTranscriptContainer" style="margin-top:0.8rem;">
                     <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;">Transcript</div>
                     <div id="detailsTranscript" style="max-height:150px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:12px;padding:0.6rem;font-size:0.75rem;line-height:1.5;scrollbar-width:thin;border:1px solid rgba(255,255,255,0.04);">
                         <div style="color:#5a6885;text-align:center;padding:0.5rem;">Loading transcript...</div>
                     </div>
                 </div>
-
-                <!-- AI Summary -->
                 <div id="detailsSummaryContainer" style="margin-top:0.6rem;">
                     <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;">AI Recap</div>
                     <div id="detailsSummary" style="background:rgba(139,92,246,0.08);border-radius:12px;padding:0.5rem 0.7rem;font-size:0.75rem;color:#c4b5fd;min-height:30px;border:1px solid rgba(139,92,246,0.1);">
                         <span style="color:#5a6885;">No summary available</span>
                     </div>
                 </div>
-
-                <!-- Export Buttons -->
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.04);">
                     <button class="details-export-btn" data-format="txt" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 TXT</button>
                     <button class="details-export-btn" data-format="json" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 JSON</button>
                     <button class="details-export-btn" data-format="share" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.7rem;cursor:pointer;">↗ Share</button>
                 </div>
-
                 <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.04);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;align-items:center;">
                     <i class="fas fa-shield"></i> Safety tools
                 </div>
