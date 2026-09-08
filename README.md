@@ -141,7 +141,7 @@ He specialises in:
 
 ### Installation
 1. Clone the repository:
-   ```bash
+   ```markdown
    git clone https://github.com/suryasticsai/sandesai.git
 
 2. Open index.html in your browser.
