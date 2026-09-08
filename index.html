@@ -8,16 +8,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
     <link rel="stylesheet" href="style.css" />
-    
-    <!-- Firebase SDKs (for messaging) -->
+
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
-    
-    <!-- jQuery + Parallax (for UI effects) -->
+
+    <!-- jQuery + Parallax + PeerJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous"></script>
-    <!-- PeerJS is loaded inside app.js, but we keep it here for clarity -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 </head>
 <body>
@@ -58,12 +57,80 @@
                 <input type="text" placeholder="Search..." id="searchInput" />
             </div>
 
+            <!-- ===== CONTENT PANELS (Chat, Calls, Profile) ===== -->
             <div class="list-content" id="listContent">
+                <!-- Chat Panel -->
                 <div class="content-panel" id="chatPanel">
                     <div class="chat-list" id="chatList"></div>
                 </div>
+                <!-- Calls Panel -->
                 <div class="content-panel" id="callsPanel" style="display:none;">
                     <div class="call-list" id="callList"></div>
+                </div>
+                <!-- Profile Panel (full view) -->
+                <div class="content-panel" id="profilePanel" style="display:none; padding: 1rem 1.2rem; overflow-y: auto;">
+                    <div style="display:flex; flex-direction:column; align-items:center; text-align:center; padding-top:1rem;">
+                        <div id="profileAvatarFull" style="width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#8b5cf6,#6d28d9); display:flex; align-items:center; justify-content:center; font-size:2.8rem; font-weight:700; color:#fff; box-shadow:0 8px 40px rgba(0,0,0,0.5); margin-bottom:0.5rem;">
+                            <span id="profileAvatarText">U</span>
+                        </div>
+                        <div id="profileNameFull" style="font-size:1.4rem; font-weight:700;">User</div>
+                        <div id="profilePhoneFull" style="font-size:0.9rem; color:#7a89a8; margin-top:0.1rem;"><i class="fas fa-phone"></i> +91 9995554443</div>
+                        <div id="profileTimeFull" style="font-size:0.75rem; color:#5a6885; margin-top:0.3rem;"><i class="far fa-clock"></i> Last active: Just now</div>
+                    </div>
+
+                    <!-- Settings Section -->
+                    <div class="settings-section" style="margin-top:1.5rem; background:rgba(255,255,255,0.03); border-radius:16px; padding:1rem 1rem; border:1px solid rgba(255,255,255,0.04);">
+                        <div class="settings-header"><i class="fas fa-cog"></i> Preferences</div>
+
+                        <div class="setting-item">
+                            <span><i class="fas fa-palette"></i> Theme</span>
+                            <div class="theme-options">
+                                <button class="theme-btn" data-theme="light">☀️</button>
+                                <button class="theme-btn active" data-theme="dark">🌙</button>
+                                <button class="theme-btn" data-theme="neon">💜</button>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <span><i class="fas fa-phone"></i> Show FAB</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked id="fabToggle" />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="setting-item">
+                            <span><i class="fas fa-bell"></i> Notifications</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked id="notifToggle" />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="setting-item">
+                            <span><i class="fas fa-volume-up"></i> Sound</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked id="soundToggle" />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="setting-item registration-link">
+                            <span><i class="fas fa-user-plus"></i> Registration</span>
+                            <button class="reg-btn" id="openRegForm"><i class="fas fa-arrow-right"></i></button>
+                        </div>
+
+                        <div class="setting-item">
+                            <span><i class="fas fa-language"></i> Language</span>
+                            <select class="lang-select">
+                                <option value="en">English</option>
+                                <option value="hi">Hindi</option>
+                                <option value="es">Spanish</option>
+                            </select>
+                        </div>
+
+                        <button class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                    </div>
                 </div>
             </div>
 
@@ -74,7 +141,7 @@
             </footer>
         </div>
 
-        <!-- ===== CHAT VIEW ===== -->
+        <!-- ===== CHAT VIEW (slides in) ===== -->
         <div class="view chat-view" id="chatView">
             <header class="chat-header" data-depth="0.10">
                 <button class="back-btn" id="backBtn" data-depth="0.15">
@@ -109,69 +176,6 @@
                     <button class="send-btn" id="sendBtn" data-depth="0.20"><i class="fas fa-paper-plane"></i></button>
                 </div>
             </div>
-        </div>
-
-        <!-- ===== PROFILE PANEL ===== -->
-        <div class="profile-panel" id="profilePanel">
-            <button class="close-profile" id="closeProfileBtn"><i class="fas fa-xmark"></i></button>
-            <div class="profile-avatar" id="profileAvatar">RK</div>
-            <div class="profile-name" id="profileName">Ravi</div>
-            <div class="profile-phone" id="profilePhone"><i class="fas fa-phone"></i> +91 9995554443</div>
-
-            <div class="settings-section" id="settingsSection">
-                <div class="settings-header"><i class="fas fa-cog"></i> Preferences</div>
-
-                <div class="setting-item">
-                    <span><i class="fas fa-palette"></i> Theme</span>
-                    <div class="theme-options">
-                        <button class="theme-btn" data-theme="light">☀️</button>
-                        <button class="theme-btn active" data-theme="dark">🌙</button>
-                        <button class="theme-btn" data-theme="neon">💜</button>
-                    </div>
-                </div>
-
-                <div class="setting-item">
-                    <span><i class="fas fa-phone"></i> Show FAB</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" checked id="fabToggle" />
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-
-                <div class="setting-item">
-                    <span><i class="fas fa-bell"></i> Notifications</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" checked id="notifToggle" />
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-
-                <div class="setting-item">
-                    <span><i class="fas fa-volume-up"></i> Sound</span>
-                    <label class="toggle-switch">
-                        <input type="checkbox" checked id="soundToggle" />
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-
-                <div class="setting-item registration-link">
-                    <span><i class="fas fa-user-plus"></i> Registration</span>
-                    <button class="reg-btn" id="openRegForm"><i class="fas fa-arrow-right"></i></button>
-                </div>
-
-                <div class="setting-item">
-                    <span><i class="fas fa-language"></i> Language</span>
-                    <select class="lang-select">
-                        <option value="en">English</option>
-                        <option value="hi">Hindi</option>
-                        <option value="es">Spanish</option>
-                    </select>
-                </div>
-
-                <button class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button>
-            </div>
-
-            <div class="profile-time" id="profileTime"><i class="far fa-clock"></i> Last active: 12:30</div>
         </div>
 
         <!-- ===== REGISTRATION FORM ===== -->
@@ -441,7 +445,6 @@
 
     </div> <!-- end .app -->
 
-    <!-- Load UI script first, then calling core -->
     <script src="script.js"></script>
     <script src="app.js"></script>
 </body>
