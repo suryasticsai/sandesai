@@ -141,13 +141,12 @@ He specialises in:
 
 ### Installation
 1. Clone the repository:
-   ```html
+   ```
    git clone https://github.com/suryasticsai/sandesai.git
-
+```
 2. Open index.html in your browser.
 3. Register with a 10‑digit phone number (OTP: 1234).
 4. Start chatting, calling, and exploring!
-```
 ---
 Deployment
 
