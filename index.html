@@ -46,7 +46,9 @@
                     <span id="myNumberDisplay" style="font-size:0.7rem;color:#7a89a8;cursor:pointer;margin-left:4px;">—</span>
                 </div>
                 <div class="actions">
-                    <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>
+                    <!-- <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>-->
+                    <!-- In the header actions, add this button after aboutBtn -->
+                    <button id="openAiChatBtn" data-depth="0.20" title="AI Chat"><i class="fas fa-robot"></i></button> 
                     <button id="aboutBtn" data-depth="0.20"><i class="fas fa-ellipsis-vertical"></i></button>
                 </div>
             </header>
@@ -176,6 +178,37 @@
                 </div>
             </div>
         </div>
+        <!-- ===== AI CHAT VIEW ===== -->
+        <div class="view ai-view" id="aiView">
+    <header class="chat-header" data-depth="0.10">
+        <button class="back-btn" id="aiBackBtn" data-depth="0.15">
+            <i class="fas fa-arrow-left"></i>
+        </button>
+        <div class="left">
+            <div class="avatar-sm" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9);">
+                <span style="font-size:1.2rem;font-weight:700;">🧠</span>
+            </div>
+            <div class="chat-name">
+                <span>RAGina</span>
+                <small id="aiStatus">AI Assistant</small>
+            </div>
+        </div>
+        <div class="right">
+            <button id="aiClearBtn" data-depth="0.15" title="Clear chat"><i class="fas fa-eraser"></i></button>
+            <button id="aiExportBtn" data-depth="0.20" title="Export chat"><i class="fas fa-download"></i></button>
+        </div>
+    </header>
+    
+    <div class="chat-messages" id="aiMessages"></div>
+    
+    <div class="chat-input" data-depth="0.08">
+        <input type="text" id="aiInput" placeholder="Ask about your conversations..." />
+        <div class="input-actions">
+            <button class="voice-btn" id="aiMicBtn" data-depth="0.15"><i class="fas fa-microphone"></i></button>
+            <button class="send-btn" id="aiSendBtn" data-depth="0.20"><i class="fas fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
 
         <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
@@ -373,6 +406,7 @@
                     <button class="details-export-btn" data-format="txt" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 TXT</button>
                     <button class="details-export-btn" data-format="json" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 JSON</button>
                     <button class="details-export-btn" data-format="share" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.7rem;cursor:pointer;">↗ Share</button>
+                    <button class="details-summarize-btn" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,182,72,0.2);background:rgba(255,182,72,0.08);color:#ffb648;font-weight:500;font-size:0.7rem;cursor:pointer;">🧠 Summarize</button>
                 </div>
                 <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.06);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;align-items:center;">
                     <i class="fas fa-shield"></i> Safety tools
