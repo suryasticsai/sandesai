@@ -1,5 +1,6 @@
 // ================================================================
-// SCRIPT.JS – UI, Navigation, Contacts, Settings, Firebase Messaging, AI Chat
+// SCRIPT.JS – UI, Navigation, Contacts, Settings, Firebase Messaging
+// (Uses window.PremCall for calling features)
 // ================================================================
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -108,12 +109,8 @@ let firebaseReady = false;
 let db = null, auth = null;
 let myNumber = null;
 
-// AI chat state
-let aiChatHistory = [];
-const AI_STORAGE_KEY = 'sandesai_ai_chat';
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. FIREBASE MESSAGING (safe – no duplicate init)
+// 4. FIREBASE MESSAGING (auto-repair on number mismatch)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
@@ -131,16 +128,15 @@ function initFirebaseMessaging() {
         return;
     }
     try {
+        // Guard against duplicate initialization
         if (!firebase.apps || firebase.apps.length === 0) {
             firebase.initializeApp(FIREBASE_CONFIG);
-            console.log('🔥 Firebase initialized');
-        } else {
-            console.log('🔥 Firebase already initialized, reusing');
         }
         db = firebase.firestore();
         auth = firebase.auth();
         db.enablePersistence({ synchronizeTabs: true }).catch(err => console.warn('Persistence error:', err));
         firebaseReady = true;
+        console.log('🔥 Firebase initialized');
         startMessaging();
     } catch (e) {
         console.error('Firebase init error:', e);
@@ -156,8 +152,7 @@ function startMessaging() {
         return;
     }
     myNumber = stored;
-    const display = document.getElementById('myNumberDisplay');
-    if (display) display.textContent = myNumber;
+    document.getElementById('myNumberDisplay').textContent = myNumber;
 
     auth.signInAnonymously().then(cred => {
         const uid = cred.user.uid;
@@ -344,19 +339,10 @@ function renderChatList() {
                 ${c.unread > 0 ? `<div class="unread">${c.unread}</div>` : ''}
             </div>
         `;
-        // Click opens profile view (if overlay exists)
         div.addEventListener('click', (e) => {
             e.stopPropagation();
             const number = c.number || c.name;
-            if (number) {
-                // Check if contact profile overlay exists
-                if (document.getElementById('contactProfileOverlay')) {
-                    openContactProfile(number);
-                } else {
-                    // Fallback: open chat directly
-                    openChat(number);
-                }
-            }
+            if (number) openChat(number);
         });
         container.appendChild(div);
     });
@@ -389,10 +375,8 @@ function renderMessages() {
     document.getElementById('chatName').textContent = name;
     document.getElementById('chatStatus').textContent = `Chatting with ${activeChatPeer}`;
     const avatarEl = document.getElementById('chatAvatar');
-    if (avatarEl) {
-        avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
-        avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
-    }
+    avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
+    avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
 }
 
 function renderCallList() {
@@ -500,7 +484,39 @@ function renderCallList() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. CONTACT PROFILE (safe init)
+// 6. PROFILE VIEW (own profile)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderProfileView() {
+    const savedUser = localStorage.getItem('neonUser');
+    let userName = 'User', userPhone = '';
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            userName = user.name || 'User';
+            userPhone = user.phone || '';
+        } catch (e) {}
+    }
+    const premNum = localStorage.getItem('premCallNumber');
+    if (premNum && !userPhone) userPhone = premNum;
+
+    document.getElementById('profileAvatarText').textContent = userName.charAt(0).toUpperCase();
+    document.getElementById('profileNameFull').textContent = userName;
+    document.getElementById('profilePhoneFull').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
+    document.getElementById('profileTimeFull').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
+
+    const link = document.querySelector('.registration-link');
+    if (savedUser) {
+        try {
+            const user = JSON.parse(savedUser);
+            if (user && user.registered) {
+                if (link) link.style.display = 'none';
+            }
+        } catch (e) {}
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. CONTACT PROFILE (full implementation)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let currentProfilePeer = null;
 let contactBios = JSON.parse(localStorage.getItem('contactBios') || '{}');
@@ -514,27 +530,22 @@ function openContactProfile(peer) {
     const name = getContactName(peer) || peer;
     const bio = contactBios[peer] || 'Tap to add a short bio';
 
-    const avatarText = document.getElementById('contactProfileAvatarText');
-    const profileName = document.getElementById('contactProfileName');
-    const profilePhone = document.getElementById('contactProfilePhone');
-    const profileBio = document.getElementById('contactProfileBio');
-    const bioInput = document.getElementById('contactBioInput');
-
-    if (avatarText) avatarText.textContent = name.charAt(0).toUpperCase();
-    if (profileName) profileName.textContent = name;
-    if (profilePhone) profilePhone.textContent = '+91 ' + peer;
-    if (profileBio) profileBio.textContent = bio;
-    if (bioInput) bioInput.value = bio;
+    document.getElementById('contactProfileAvatarText').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('contactProfileName').textContent = name;
+    document.getElementById('contactProfileUsername').textContent = '@' + name.toLowerCase().replace(/\s/g, '');
+    document.getElementById('contactProfilePhone').textContent = '+91 ' + peer;
+    document.getElementById('contactProfileBio').textContent = bio;
+    document.getElementById('contactBioInput').value = bio;
 
     // Recent calls
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
     const recent = logs.filter(l => l.number === peer).slice(0, 5);
-    const container = document.getElementById('contactProfileRecentCalls');
-    if (container) {
+    const callsContainer = document.getElementById('contactProfileRecentCalls');
+    if (callsContainer) {
         if (recent.length === 0) {
-            container.innerHTML = '<span style="color:#5a6885;">No recent calls</span>';
+            callsContainer.innerHTML = '<span style="color:#5a6885;">No recent calls</span>';
         } else {
-            container.innerHTML = recent.map(call => {
+            callsContainer.innerHTML = recent.map(call => {
                 const dir = call.direction || 'incoming';
                 const icon = dir === 'incoming' ? '📥' : dir === 'outgoing' ? '📤' : '❌';
                 const time = new Date(call.started).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -566,8 +577,8 @@ function initContactProfile() {
     const bioSave = document.getElementById('contactBioSave');
     const bioCancel = document.getElementById('contactBioCancel');
     const callBtn = document.getElementById('contactProfileCall');
+    const videoBtn = document.getElementById('contactProfileVideo');
     const msgBtn = document.getElementById('contactProfileMessage');
-    const saveBtn = document.getElementById('contactProfileSave');
 
     if (!overlay || !backBtn || !bio) {
         console.warn('Contact profile elements missing, skipping init');
@@ -581,32 +592,26 @@ function initContactProfile() {
 
     bio.addEventListener('click', () => {
         if (!currentProfilePeer) return;
-        if (bioEditor) {
-            bioEditor.style.display = 'block';
-            if (bioInput) {
-                bioInput.value = contactBios[currentProfilePeer] || '';
-                bioInput.focus();
-            }
-        }
+        bioEditor.style.display = 'block';
+        bioInput.value = contactBios[currentProfilePeer] || '';
+        bioInput.focus();
     });
 
     if (bioSave) {
         bioSave.addEventListener('click', () => {
             if (!currentProfilePeer) return;
-            const newBio = bioInput ? bioInput.value.trim() : '';
-            const bioText = newBio || 'Tap to add a short bio';
-            contactBios[currentProfilePeer] = bioText;
+            const newBio = bioInput.value.trim() || 'Tap to add a short bio';
+            contactBios[currentProfilePeer] = newBio;
             localStorage.setItem('contactBios', JSON.stringify(contactBios));
-            const profileBio = document.getElementById('contactProfileBio');
-            if (profileBio) profileBio.textContent = bioText;
-            if (bioEditor) bioEditor.style.display = 'none';
+            document.getElementById('contactProfileBio').textContent = newBio;
+            bioEditor.style.display = 'none';
             showToast('Bio updated');
         });
     }
 
     if (bioCancel) {
         bioCancel.addEventListener('click', () => {
-            if (bioEditor) bioEditor.style.display = 'none';
+            bioEditor.style.display = 'none';
         });
     }
 
@@ -614,6 +619,14 @@ function initContactProfile() {
         callBtn.addEventListener('click', () => {
             if (!currentProfilePeer) return;
             if (window.PremCall) PremCall.call(currentProfilePeer, false);
+            closeContactProfile();
+        });
+    }
+
+    if (videoBtn) {
+        videoBtn.addEventListener('click', () => {
+            if (!currentProfilePeer) return;
+            if (window.PremCall) PremCall.call(currentProfilePeer, true);
             closeContactProfile();
         });
     }
@@ -626,243 +639,6 @@ function initContactProfile() {
             openChat(currentProfilePeer);
         });
     }
-
-    if (saveBtn) {
-        saveBtn.addEventListener('click', () => {
-            if (!currentProfilePeer) return;
-            const name = getContactName(currentProfilePeer) || currentProfilePeer;
-            if (getSavedContacts().some(c => c.number === currentProfilePeer)) {
-                showToast('Already saved');
-                return;
-            }
-            const newName = prompt('Enter contact name:', name);
-            if (newName) {
-                saveContact(newName, currentProfilePeer);
-                const profileName = document.getElementById('contactProfileName');
-                if (profileName) profileName.textContent = newName;
-                showToast('Contact saved');
-            }
-        });
-    }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. AI CHAT (safe init)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function loadAiChat() {
-    try {
-        const saved = localStorage.getItem(AI_STORAGE_KEY);
-        if (saved) aiChatHistory = JSON.parse(saved);
-    } catch (e) { aiChatHistory = []; }
-}
-
-function saveAiChat() {
-    try {
-        localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(aiChatHistory));
-    } catch (e) {}
-}
-
-function renderAiMessages() {
-    const container = document.getElementById('aiMessages');
-    if (!container) return;
-    container.innerHTML = '';
-    if (aiChatHistory.length === 0) {
-        container.innerHTML = '<div style="text-align:center;color:#5a6885;padding:2rem 0;font-size:0.85rem;"><i class="fas fa-robot" style="display:block;font-size:2rem;margin-bottom:0.5rem;opacity:0.3;"></i>Ask me anything about your conversations!</div>';
-        return;
-    }
-    aiChatHistory.forEach((msg, index) => {
-        const div = document.createElement('div');
-        const isUser = msg.role === 'user';
-        div.className = `msg ${isUser ? 'sent' : 'received'}`;
-        div.style.animationDelay = `${index * 0.04}s`;
-        const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        div.innerHTML = `${msg.text}<span class="time-tag">${time}</span>`;
-        container.appendChild(div);
-    });
-    container.scrollTop = container.scrollHeight;
-}
-
-async function askRAGina(query) {
-    if (!query.trim()) return;
-    aiChatHistory.push({ role: 'user', text: query, timestamp: Date.now() });
-    saveAiChat();
-    renderAiMessages();
-
-    let context = '';
-    if (db && myNumber) {
-        try {
-            const snapshot = await db.collection('messages')
-                .where('participants', 'array-contains', myNumber)
-                .orderBy('timestamp', 'asc')
-                .get();
-            const messages = snapshot.docs.map(doc => doc.data());
-            const convos = {};
-            messages.forEach(msg => {
-                const peer = msg.from === myNumber ? msg.to : msg.from;
-                if (!convos[peer]) convos[peer] = [];
-                convos[peer].push(msg);
-            });
-            context = 'Here are your recent conversations:\n\n';
-            for (const [peer, msgs] of Object.entries(convos)) {
-                const name = getContactName(peer) || peer;
-                context += `--- Conversation with ${name} (${peer}) ---\n`;
-                const recent = msgs.slice(-10);
-                recent.forEach(m => {
-                    const sender = m.from === myNumber ? 'You' : name;
-                    context += `${sender}: ${m.text}\n`;
-                });
-                context += '\n';
-            }
-        } catch (e) {
-            console.error('Error fetching conversations for AI:', e);
-        }
-    }
-
-    if (!context) {
-        context = 'You are a helpful assistant.';
-    }
-
-    try {
-        const response = await fetch('https://ragina-crawler-ragina.vercel.app/api/ask', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: `You are RAGina, an AI assistant that knows everything about the user's conversations. Answer based on the context provided.\n\nContext:\n${context}\n\nUser question: ${query}\n\nAnswer:`
-            })
-        });
-        if (!response.ok) throw new Error('API error');
-        const data = await response.json();
-        const answer = data.text || 'I had trouble understanding. Can you rephrase?';
-        aiChatHistory.push({ role: 'assistant', text: answer, timestamp: Date.now() });
-        saveAiChat();
-        renderAiMessages();
-    } catch (err) {
-        console.error('RAGina API error:', err);
-        const fallback = "I'm having trouble connecting. Please try again later.";
-        aiChatHistory.push({ role: 'assistant', text: fallback, timestamp: Date.now() });
-        saveAiChat();
-        renderAiMessages();
-        showToast('AI error: ' + err.message);
-    }
-}
-
-function openAiChat() {
-    const aiView = document.getElementById('aiView');
-    const listView = document.getElementById('listView');
-    if (aiView) aiView.classList.add('open');
-    if (listView) listView.classList.add('shrink');
-    loadAiChat();
-    renderAiMessages();
-}
-
-function closeAiChat() {
-    const aiView = document.getElementById('aiView');
-    const listView = document.getElementById('listView');
-    if (aiView) aiView.classList.remove('open');
-    if (listView) listView.classList.remove('shrink');
-}
-
-function initAiChat() {
-    const openBtn = document.getElementById('openAiChatBtn');
-    const backBtn = document.getElementById('aiBackBtn');
-    const sendBtn = document.getElementById('aiSendBtn');
-    const input = document.getElementById('aiInput');
-    const clearBtn = document.getElementById('aiClearBtn');
-    const exportBtn = document.getElementById('aiExportBtn');
-    const micBtn = document.getElementById('aiMicBtn');
-
-    if (!openBtn) {
-        console.warn('AI chat elements missing, skipping init');
-        return;
-    }
-
-    openBtn.addEventListener('click', openAiChat);
-    if (backBtn) backBtn.addEventListener('click', closeAiChat);
-
-    if (sendBtn && input) {
-        sendBtn.addEventListener('click', () => {
-            const text = input.value.trim();
-            if (text) {
-                askRAGina(text);
-                input.value = '';
-            }
-        });
-
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendBtn.click();
-        });
-    }
-
-    if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            if (confirm('Clear AI chat history?')) {
-                aiChatHistory = [];
-                saveAiChat();
-                renderAiMessages();
-                showToast('Chat cleared');
-            }
-        });
-    }
-
-    if (exportBtn) {
-        exportBtn.addEventListener('click', () => {
-            const data = JSON.stringify(aiChatHistory, null, 2);
-            const blob = new Blob([data], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'ai-chat-' + Date.now() + '.json';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 2000);
-            showToast('Exported');
-        });
-    }
-
-    // Voice input
-    let isListening = false;
-    let recognition = null;
-    if (micBtn && input) {
-        micBtn.addEventListener('click', () => {
-            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) { showToast('Speech recognition not supported'); return; }
-            if (isListening) {
-                if (recognition) try { recognition.stop(); } catch (e) {}
-                isListening = false;
-                micBtn.style.color = '#a5b3d0';
-                return;
-            }
-            isListening = true;
-            micBtn.style.color = '#2fd992';
-            recognition = new SR();
-            recognition.lang = 'en-US';
-            recognition.interimResults = false;
-            recognition.onresult = (e) => {
-                const transcript = e.results[0][0].transcript;
-                input.value = transcript;
-                if (sendBtn) sendBtn.click();
-                isListening = false;
-                micBtn.style.color = '#a5b3d0';
-            };
-            recognition.onend = () => {
-                isListening = false;
-                micBtn.style.color = '#a5b3d0';
-            };
-            recognition.onerror = () => {
-                isListening = false;
-                micBtn.style.color = '#a5b3d0';
-                showToast('Mic error');
-            };
-            try { recognition.start(); } catch (e) { showToast('Error starting mic'); }
-        });
-    }
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && document.getElementById('aiView')?.classList.contains('open')) {
-            closeAiChat();
-        }
-    });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -909,22 +685,25 @@ async function summarizeCurrentChat() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. SUMMARIZE CALL (in call details)
+// 9. SUMMARIZE CALL (for call transcripts)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function summarizeCall(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
-    const log = logs.find(l => l.id === logId);
-    if (!log) {
+    const logIndex = logs.findIndex(l => l.id === logId);
+    if (logIndex === -1) {
         showToast('Call log not found');
         return;
     }
+    const log = logs[logIndex];
     if (!log.messages || log.messages.length === 0) {
         showToast('No transcript for this call');
         return;
     }
+
     const text = log.messages.map(m => `${m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live')}: ${m.text}`).join('\n');
+
     try {
-        showToast('🧠 Summarizing call...');
+        showToast('🧠 Generating summary...');
         const response = await fetch('https://ragina-crawler-ragina.vercel.app/api/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -932,18 +711,33 @@ async function summarizeCall(logId) {
                 prompt: `Summarize this phone call transcript in 2-3 sentences:\n\n${text}\n\nSummary:`
             })
         });
-        if (!response.ok) throw new Error('API error');
-        const data = await response.json();
-        const summary = data.text || 'Could not generate summary.';
-        log.summary = summary;
-        if (window.PremCall && window.PremCall.updateLogSummary) {
-            window.PremCall.updateLogSummary(log.id, summary);
+        let summary = "Could not generate summary.";
+        if (response.ok) {
+            const data = await response.json();
+            summary = data.text || summary;
+        } else {
+            throw new Error('API returned ' + response.status);
         }
-        if (window.openCallDetails) window.openCallDetails(log.id);
-        showToast('📝 ' + summary);
+
+        logs[logIndex].summary = summary;
+        if (window.PremCall && window.PremCall.updateLogSummary) {
+            window.PremCall.updateLogSummary(logId, summary);
+        }
+        if (window.openCallDetails) {
+            window.openCallDetails(logId);
+        }
+        showToast('📝 Call summarized!');
     } catch (err) {
         console.error('Summarize call error:', err);
-        showToast('Error summarizing call');
+        const fallback = "Could not generate summary. Please try again later.";
+        logs[logIndex].summary = fallback;
+        if (window.PremCall && window.PremCall.updateLogSummary) {
+            window.PremCall.updateLogSummary(logId, fallback);
+        }
+        if (window.openCallDetails) {
+            window.openCallDetails(logId);
+        }
+        showToast('Error summarizing call: ' + err.message);
     }
 }
 
@@ -959,25 +753,22 @@ function switchTab(tab) {
     const callsPanel = document.getElementById('callsPanel');
     const profilePanel = document.getElementById('profilePanel');
     if (tab === 'chat') {
-        if (chatPanel) chatPanel.style.display = 'block';
-        if (callsPanel) callsPanel.style.display = 'none';
-        if (profilePanel) profilePanel.style.display = 'none';
-        const search = document.getElementById('searchInput');
-        if (search) search.placeholder = 'Search chats...';
+        chatPanel.style.display = 'block';
+        callsPanel.style.display = 'none';
+        profilePanel.style.display = 'none';
+        document.getElementById('searchInput').placeholder = 'Search chats...';
         renderChatList();
     } else if (tab === 'calls') {
-        if (chatPanel) chatPanel.style.display = 'none';
-        if (callsPanel) callsPanel.style.display = 'block';
-        if (profilePanel) profilePanel.style.display = 'none';
-        const search = document.getElementById('searchInput');
-        if (search) search.placeholder = 'Search calls...';
+        chatPanel.style.display = 'none';
+        callsPanel.style.display = 'block';
+        profilePanel.style.display = 'none';
+        document.getElementById('searchInput').placeholder = 'Search calls...';
         renderCallList();
     } else if (tab === 'me') {
-        if (chatPanel) chatPanel.style.display = 'none';
-        if (callsPanel) callsPanel.style.display = 'none';
-        if (profilePanel) profilePanel.style.display = 'block';
-        const search = document.getElementById('searchInput');
-        if (search) search.placeholder = 'Search...';
+        chatPanel.style.display = 'none';
+        callsPanel.style.display = 'none';
+        profilePanel.style.display = 'block';
+        document.getElementById('searchInput').placeholder = 'Search...';
         renderProfileView();
     }
 }
@@ -988,39 +779,29 @@ function openChat(peer) {
         listenPeerConversation(peer);
     }
     activeChatPeer = peer;
-    const chatView = document.getElementById('chatView');
-    const listView = document.getElementById('listView');
-    if (chatView) chatView.classList.add('open');
-    if (listView) listView.classList.add('shrink');
+    document.getElementById('chatView').classList.add('open');
+    document.getElementById('listView').classList.add('shrink');
     renderMessages();
     const name = getContactName(peer) || peer;
-    const chatName = document.getElementById('chatName');
-    const chatStatus = document.getElementById('chatStatus');
-    if (chatName) chatName.textContent = name;
-    if (chatStatus) chatStatus.textContent = `Chatting with ${peer}`;
+    document.getElementById('chatName').textContent = name;
+    document.getElementById('chatStatus').textContent = `Chatting with ${peer}`;
     const avatarEl = document.getElementById('chatAvatar');
-    if (avatarEl) {
-        avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
-        avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
-    }
-    const msgInput = document.getElementById('msgInput');
-    if (msgInput) msgInput.focus();
+    avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
+    avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
+    document.getElementById('msgInput').focus();
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
 }
 
 function closeChat() {
     activeChatPeer = null;
-    const chatView = document.getElementById('chatView');
-    const listView = document.getElementById('listView');
-    if (chatView) chatView.classList.remove('open');
-    if (listView) listView.classList.remove('shrink');
+    document.getElementById('chatView').classList.remove('open');
+    document.getElementById('listView').classList.remove('shrink');
     renderChatList();
 }
 
 function sendMessage() {
     const input = document.getElementById('msgInput');
-    if (!input) return;
     const text = input.value.trim();
     if (!text || !activeChatPeer || !firebaseReady) return;
     const peer = activeChatPeer;
@@ -1038,44 +819,7 @@ function sendMessage() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. PROFILE VIEW (full panel)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function renderProfileView() {
-    const savedUser = localStorage.getItem('neonUser');
-    let userName = 'User', userPhone = '';
-    if (savedUser) {
-        try {
-            const user = JSON.parse(savedUser);
-            userName = user.name || 'User';
-            userPhone = user.phone || '';
-        } catch (e) {}
-    }
-    const premNum = localStorage.getItem('premCallNumber');
-    if (premNum && !userPhone) userPhone = premNum;
-
-    const avatarText = document.getElementById('profileAvatarText');
-    const profileName = document.getElementById('profileNameFull');
-    const profilePhone = document.getElementById('profilePhoneFull');
-    const profileTime = document.getElementById('profileTimeFull');
-
-    if (avatarText) avatarText.textContent = userName.charAt(0).toUpperCase();
-    if (profileName) profileName.textContent = userName;
-    if (profilePhone) profilePhone.innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
-    if (profileTime) profileTime.innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
-
-    const link = document.querySelector('.registration-link');
-    if (savedUser) {
-        try {
-            const user = JSON.parse(savedUser);
-            if (user && user.registered) {
-                if (link) link.style.display = 'none';
-            }
-        } catch (e) {}
-    }
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. SETTINGS & THEME
+// 11. SETTINGS & THEME
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initSettings() {
     document.querySelectorAll('.theme-btn').forEach(btn => {
@@ -1134,7 +878,7 @@ function applyTheme(theme) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. REGISTRATION (unchanged)
+// 12. REGISTRATION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initRegistration() {
     const overlay = document.getElementById('regOverlay');
@@ -1158,10 +902,8 @@ function initRegistration() {
                     localStorage.setItem('premCallVerified', 'true');
                     localStorage.setItem('premCallRegisteredAt', String(Date.now()));
                     PremCall.init(user.phone);
-                    const display = document.getElementById('myNumberDisplay');
-                    if (display) display.textContent = user.phone;
-                    const dot = document.getElementById('headerStatusDot');
-                    if (dot) dot.className = 'status-dot connecting';
+                    document.getElementById('myNumberDisplay').textContent = user.phone;
+                    document.getElementById('headerStatusDot').className = 'status-dot connecting';
                 }
                 if (!firebaseReady) initFirebaseMessaging();
             }
@@ -1175,65 +917,54 @@ function initRegistration() {
             showToast('Already registered');
             return;
         }
-        if (overlay) overlay.classList.add('open');
+        overlay.classList.add('open');
     });
-    if (closeBtn) closeBtn.addEventListener('click', () => {
-        if (overlay) overlay.classList.remove('open');
+    closeBtn.addEventListener('click', () => overlay.classList.remove('open'));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
+
+    otpSend.addEventListener('click', () => {
+        const phone = regPhone.value.trim();
+        if (!phone || !/^\d{10}$/.test(phone)) {
+            showToast('Please enter a valid 10-digit number');
+            return;
+        }
+        showToast(`📱 OTP sent to ${phone} (Demo: 1234)`);
+        document.getElementById('regOtp').value = '1234';
     });
-    if (overlay) {
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('open'); });
-    }
 
-    if (otpSend) {
-        otpSend.addEventListener('click', () => {
-            const phone = regPhone ? regPhone.value.trim() : '';
-            if (!phone || !/^\d{10}$/.test(phone)) {
-                showToast('Please enter a valid 10-digit number');
-                return;
-            }
-            showToast(`📱 OTP sent to ${phone} (Demo: 1234)`);
-            const otpInput = document.getElementById('regOtp');
-            if (otpInput) otpInput.value = '1234';
-        });
-    }
+    submitBtn.addEventListener('click', () => {
+        const name = document.getElementById('regName').value.trim();
+        const userid = document.getElementById('regUserid').value.trim();
+        const phone = regPhone.value.trim();
+        const otp = document.getElementById('regOtp').value.trim();
+        if (!name || !userid || !phone || !otp) {
+            showToast('Please fill all fields');
+            return;
+        }
+        if (otp !== '1234') {
+            showToast('Invalid OTP. Use 1234 (demo)');
+            return;
+        }
+        const userData = { name, userid, phone, registered: true, status: 'offline' };
+        localStorage.setItem('neonUser', JSON.stringify(userData));
+        updateStatusBadge(userData);
+        overlay.classList.remove('open');
+        renderProfileView();
+        showToast('✅ Registration successful! Welcome, ' + name);
+        const link = document.querySelector('.registration-link');
+        if (link) link.style.display = 'none';
+        regPhone.disabled = true;
 
-    if (submitBtn) {
-        submitBtn.addEventListener('click', () => {
-            const name = document.getElementById('regName')?.value.trim() || '';
-            const userid = document.getElementById('regUserid')?.value.trim() || '';
-            const phone = regPhone ? regPhone.value.trim() : '';
-            const otp = document.getElementById('regOtp')?.value.trim() || '';
-            if (!name || !userid || !phone || !otp) {
-                showToast('Please fill all fields');
-                return;
-            }
-            if (otp !== '1234') {
-                showToast('Invalid OTP. Use 1234 (demo)');
-                return;
-            }
-            const userData = { name, userid, phone, registered: true, status: 'offline' };
-            localStorage.setItem('neonUser', JSON.stringify(userData));
-            updateStatusBadge(userData);
-            if (overlay) overlay.classList.remove('open');
-            renderProfileView();
-            showToast('✅ Registration successful! Welcome, ' + name);
-            const link = document.querySelector('.registration-link');
-            if (link) link.style.display = 'none';
-            if (regPhone) regPhone.disabled = true;
-
-            if (window.PremCall) {
-                localStorage.setItem('premCallNumber', phone);
-                localStorage.setItem('premCallVerified', 'true');
-                localStorage.setItem('premCallRegisteredAt', String(Date.now()));
-                PremCall.init(phone);
-                const display = document.getElementById('myNumberDisplay');
-                if (display) display.textContent = phone;
-                const dot = document.getElementById('headerStatusDot');
-                if (dot) dot.className = 'status-dot connecting';
-            }
-            if (!firebaseReady) initFirebaseMessaging();
-        });
-    }
+        if (window.PremCall) {
+            localStorage.setItem('premCallNumber', phone);
+            localStorage.setItem('premCallVerified', 'true');
+            localStorage.setItem('premCallRegisteredAt', String(Date.now()));
+            PremCall.init(phone);
+            document.getElementById('myNumberDisplay').textContent = phone;
+            document.getElementById('headerStatusDot').className = 'status-dot connecting';
+        }
+        if (!firebaseReady) initFirebaseMessaging();
+    });
 }
 
 function updateStatusBadge(user) {
@@ -1263,18 +994,15 @@ function updateStatusBadge(user) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. FAB, DIALPAD, TOGGLES, TOAST, ABOUT, DEBUG
+// 13. FAB, DIALPAD, TOGGLES, TOAST, ABOUT, DEBUG
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFab() {
     const fab = document.getElementById('fabButton');
     if (!fab) return;
     fab.addEventListener('click', function() {
-        const overlay = document.getElementById('dialpadOverlay');
-        if (overlay) overlay.classList.add('open');
-        const display = document.getElementById('dialpadDisplayText');
-        const clearBtn = document.getElementById('dialClearBtn');
-        if (display) display.textContent = '';
-        if (clearBtn) clearBtn.style.display = 'none';
+        document.getElementById('dialpadOverlay').classList.add('open');
+        document.getElementById('dialpadDisplayText').textContent = '';
+        document.getElementById('dialClearBtn').style.display = 'none';
     });
 }
 
@@ -1289,16 +1017,15 @@ function initDialpad() {
         overlay.classList.remove('open');
         number = '';
         displayText.textContent = '';
-        if (clearBtn) clearBtn.style.display = 'none';
+        clearBtn.style.display = 'none';
     };
 
-    const closeBtn = document.getElementById('dialpadClose');
-    if (closeBtn) closeBtn.addEventListener('click', closeDialpad);
+    document.getElementById('dialpadClose').addEventListener('click', closeDialpad);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDialpad(); });
 
     function updateDisplay() {
         displayText.textContent = number;
-        if (clearBtn) clearBtn.style.display = number.length > 0 ? 'block' : 'none';
+        clearBtn.style.display = number.length > 0 ? 'block' : 'none';
     }
 
     document.querySelectorAll('.dial-btn').forEach(btn => {
@@ -1310,52 +1037,44 @@ function initDialpad() {
         });
     });
 
-    if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            number = number.slice(0, -1);
-            updateDisplay();
-        });
-    }
+    clearBtn.addEventListener('click', () => {
+        number = number.slice(0, -1);
+        updateDisplay();
+    });
 
-    const callBtn = document.getElementById('dialCall');
-    if (callBtn) {
-        callBtn.addEventListener('click', () => {
-            if (number.trim()) {
-                if (/^\d{10}$/.test(number)) {
-                    overlay.classList.remove('open');
-                    if (window.PremCall) PremCall.call(number, false);
-                    number = '';
-                    updateDisplay();
-                } else {
-                    showToast('Enter exactly 10 digits');
-                }
+    document.getElementById('dialCall').addEventListener('click', () => {
+        if (number.trim()) {
+            if (/^\d{10}$/.test(number)) {
+                overlay.classList.remove('open');
+                if (window.PremCall) PremCall.call(number, false);
+                number = '';
+                updateDisplay();
             } else {
-                showToast('Enter a number');
+                showToast('Enter exactly 10 digits');
             }
-        });
-    }
+        } else {
+            showToast('Enter a number');
+        }
+    });
 
-    const msgBtn = document.getElementById('dialMessage');
-    if (msgBtn) {
-        msgBtn.addEventListener('click', () => {
-            if (number.trim()) {
-                if (/^\d{10}$/.test(number)) {
-                    overlay.classList.remove('open');
-                    switchTab('chat');
-                    if (!conversationListeners[number]) {
-                        listenPeerConversation(number);
-                    }
-                    openChat(number);
-                    number = '';
-                    updateDisplay();
-                } else {
-                    showToast('Enter exactly 10 digits to message');
+    document.getElementById('dialMessage').addEventListener('click', () => {
+        if (number.trim()) {
+            if (/^\d{10}$/.test(number)) {
+                overlay.classList.remove('open');
+                switchTab('chat');
+                if (!conversationListeners[number]) {
+                    listenPeerConversation(number);
                 }
+                openChat(number);
+                number = '';
+                updateDisplay();
             } else {
-                showToast('Enter a number');
+                showToast('Enter exactly 10 digits to message');
             }
-        });
-    }
+        } else {
+            showToast('Enter a number');
+        }
+    });
 }
 
 function initFabToggle() {
@@ -1406,7 +1125,7 @@ function toggleAboutPanel(open) {
     const card = overlay.querySelector('.about-card');
     if (open) {
         overlay.style.display = 'flex';
-        setTimeout(() => { if (card) card.style.transform = 'scale(1) translateY(0)'; }, 20);
+        setTimeout(() => { card.style.transform = 'scale(1) translateY(0)'; }, 20);
         if (window.Parallax) {
             document.querySelectorAll('#aboutOverlay [data-depth]').forEach(el => {
                 new Parallax(el, {
@@ -1429,7 +1148,7 @@ function toggleAboutPanel(open) {
             });
         }
     } else {
-        if (card) card.style.transform = 'scale(0.92) translateY(20px)';
+        card.style.transform = 'scale(0.92) translateY(20px)';
         setTimeout(() => { overlay.style.display = 'none'; }, 400);
     }
 }
@@ -1481,23 +1200,19 @@ function initDebugConsole() {
         toggle.innerHTML = isOpen ? '<i class="fas fa-times"></i>' : '<i class="fas fa-terminal"></i>';
     });
 
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            isOpen = false;
-            consoleEl.style.transform = 'translateY(100%)';
-            toggle.innerHTML = '<i class="fas fa-terminal"></i>';
-        });
-    }
+    closeBtn.addEventListener('click', () => {
+        isOpen = false;
+        consoleEl.style.transform = 'translateY(100%)';
+        toggle.innerHTML = '<i class="fas fa-terminal"></i>';
+    });
 
-    if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-            if (body) body.innerHTML = '';
-        });
-    }
+    clearBtn.addEventListener('click', () => {
+        if (body) body.innerHTML = '';
+    });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. CALL DETAILS MODAL (with Summarize button)
+// 14. CALL DETAILS MODAL & SAVE CONTACT (with 📝 button restored)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
@@ -1568,9 +1283,11 @@ window.openCallDetails = function(logId) {
         });
     }
 
-    const transcriptContainer = document.getElementById('detailsTranscript');
-    if (transcriptContainer) {
-        transcriptContainer.innerHTML = '';
+    // ─── Transcript with "Update AI Recap" button ───
+    const transcriptContainer = document.getElementById('detailsTranscriptContainer');
+    const transcriptDiv = document.getElementById('detailsTranscript');
+    if (transcriptContainer && transcriptDiv) {
+        transcriptDiv.innerHTML = '';
         if (log.messages && log.messages.length > 0) {
             log.messages.forEach(m => {
                 const div = document.createElement('div');
@@ -1578,13 +1295,32 @@ window.openCallDetails = function(logId) {
                 const sender = m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live');
                 const color = m.role === 'user' ? '#8b5cf6' : '#2fd992';
                 div.innerHTML = `<span style="font-weight:600;color:${color};">${sender}:</span> ${m.text}`;
-                transcriptContainer.appendChild(div);
+                transcriptDiv.appendChild(div);
             });
         } else {
-            transcriptContainer.innerHTML = '<div style="color:#5a6885;text-align:center;padding:0.5rem;">No transcript for this call</div>';
+            transcriptDiv.innerHTML = '<div style="color:#5a6885;text-align:center;padding:0.5rem;">No transcript for this call</div>';
+        }
+
+        // Add the 📝 button next to the transcript header
+        const header = transcriptContainer.querySelector('div:first-child');
+        if (header) {
+            let existingBtn = header.querySelector('.transcript-update-btn');
+            if (!existingBtn) {
+                const btn = document.createElement('button');
+                btn.className = 'transcript-update-btn';
+                btn.innerHTML = '📝';
+                btn.title = 'Update AI Recap for this call';
+                btn.style.cssText = 'background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;margin-left:6px;cursor:pointer;font-size:0.8rem;';
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    summarizeCall(log.id);
+                };
+                header.appendChild(btn);
+            }
         }
     }
 
+    // ─── AI Recap ───
     const summaryContainer = document.getElementById('detailsSummary');
     if (summaryContainer) {
         if (log.summary) {
@@ -1612,7 +1348,7 @@ window.openCallDetails = function(logId) {
         };
     });
 
-    // Summarize button
+    // Full "Summarize" button (extra safety)
     let summarizeBtn = document.querySelector('.details-summarize-btn');
     if (!summarizeBtn) {
         const btnContainer = document.querySelector('.details-export-btn')?.parentNode;
@@ -1650,13 +1386,10 @@ window.openCallDetails = function(logId) {
     modal.classList.add('active');
     setTimeout(() => { card.style.transform = 'translateY(0)'; }, 50);
 
-    const closeModal = document.getElementById('detailsCloseModal');
-    if (closeModal) {
-        closeModal.onclick = () => {
-            modal.classList.remove('active');
-            card.style.transform = 'translateY(100%)';
-        };
-    }
+    document.getElementById('detailsCloseModal').onclick = () => {
+        modal.classList.remove('active');
+        card.style.transform = 'translateY(100%)';
+    };
     modal.onclick = (e) => {
         if (e.target === modal) {
             modal.classList.remove('active');
@@ -1665,46 +1398,35 @@ window.openCallDetails = function(logId) {
     };
 };
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 16. SAVE CONTACT MODAL
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openSaveContactModal(number) {
     const modal = document.getElementById('saveContactModal');
-    if (!modal) return;
-    const phoneInput = document.getElementById('saveContactPhone');
-    const nameInput = document.getElementById('saveContactName');
-    const usernameInput = document.getElementById('saveContactUsername');
-    if (phoneInput) phoneInput.value = number;
-    if (nameInput) nameInput.value = '';
-    if (usernameInput) usernameInput.value = '';
+    document.getElementById('saveContactPhone').value = number;
+    document.getElementById('saveContactName').value = '';
+    document.getElementById('saveContactUsername').value = '';
     modal.classList.add('active');
 
-    const closeBtn = document.getElementById('saveContactClose');
-    if (closeBtn) closeBtn.onclick = () => { modal.classList.remove('active'); };
+    document.getElementById('saveContactClose').onclick = () => { modal.classList.remove('active'); };
     modal.onclick = (e) => { if (e.target === modal) modal.classList.remove('active'); };
 
-    const confirmBtn = document.getElementById('saveContactConfirm');
-    if (confirmBtn) {
-        confirmBtn.onclick = () => {
-            const name = nameInput ? nameInput.value.trim() : '';
-            const username = usernameInput ? usernameInput.value.trim() : '';
-            const phone = phoneInput ? phoneInput.value.trim() : '';
-            if (!name) { showToast('Please enter a name'); return; }
-            if (!phone) { showToast('Please enter a phone number'); return; }
-            const saved = saveContact(name, phone, username);
-            if (saved) {
-                modal.classList.remove('active');
-                renderCallList();
-                const logs = window.PremCall ? window.PremCall.getLogs() : [];
-                const log = logs.find(l => l.number === phone);
-                if (log) window.openCallDetails(log.id);
-            }
-        };
-    }
+    document.getElementById('saveContactConfirm').onclick = () => {
+        const name = document.getElementById('saveContactName').value.trim();
+        const username = document.getElementById('saveContactUsername').value.trim();
+        const phone = document.getElementById('saveContactPhone').value.trim();
+        if (!name) { showToast('Please enter a name'); return; }
+        if (!phone) { showToast('Please enter a phone number'); return; }
+        const saved = saveContact(name, phone, username);
+        if (saved) {
+            modal.classList.remove('active');
+            renderCallList();
+            const logs = window.PremCall ? window.PremCall.getLogs() : [];
+            const log = logs.find(l => l.number === phone);
+            if (log) window.openCallDetails(log.id);
+        }
+    };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 17. EVENT LISTENERS (updated)
+// 15. EVENT LISTENERS (FIXED – all call/video buttons work)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function setupEventListeners() {
     const backBtn = document.getElementById('backBtn');
@@ -1715,7 +1437,7 @@ function setupEventListeners() {
     const msgInput = document.getElementById('msgInput');
     if (msgInput) msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
 
-    // Chat header Call / Video
+    // ─── Chat header: Call & Video buttons ───
     const chatCallBtn = document.getElementById('chatCallBtn');
     const chatVideoBtn = document.getElementById('chatVideoBtn');
     if (chatCallBtn) {
@@ -1752,27 +1474,18 @@ function setupEventListeners() {
         }
     });
 
-    // Voice button in chat input
+    // ─── Voice button in chat input ───
     document.querySelector('.voice-btn')?.addEventListener('click', () => {
         if (activeChatPeer && window.PremCall) {
             PremCall.call(activeChatPeer, false);
         } else {
-            const overlay = document.getElementById('dialpadOverlay');
-            if (overlay) overlay.classList.add('open');
-            const display = document.getElementById('dialpadDisplayText');
-            const clearBtn = document.getElementById('dialClearBtn');
-            if (display) display.textContent = '';
-            if (clearBtn) clearBtn.style.display = 'none';
+            document.getElementById('dialpadOverlay').classList.add('open');
+            document.getElementById('dialpadDisplayText').textContent = '';
+            document.getElementById('dialClearBtn').style.display = 'none';
         }
     });
 
-    // AI suggestion chip
-    const aiSuggestion = document.getElementById('aiSuggestion');
-    if (aiSuggestion) {
-        aiSuggestion.addEventListener('click', summarizeCurrentChat);
-    }
-
-    // AI buttons
+    // ─── AI buttons ───
     const openAiBtn = document.getElementById('openAiBtn');
     if (openAiBtn) openAiBtn.addEventListener('click', () => toggleAiOverlay(true));
     const openAiFromChat = document.getElementById('openAiFromChat');
@@ -1804,18 +1517,34 @@ function setupEventListeners() {
         });
     }
 
-    // Profile button in chat header – switches to Me tab
+    // ─── Profile button – opens contact profile (not "Me") ───
     const openProfileBtn = document.getElementById('openProfileBtn');
     if (openProfileBtn) {
         openProfileBtn.addEventListener('click', () => {
-            if (document.getElementById('chatView')?.classList.contains('open')) {
-                closeChat();
+            const peer = activeChatPeer;
+            if (!peer) {
+                showToast('No active chat');
+                return;
             }
-            switchTab('me');
+            if (typeof openContactProfile === 'function') {
+                openContactProfile(peer);
+            } else {
+                // fallback to Me tab
+                if (document.getElementById('chatView')?.classList.contains('open')) {
+                    closeChat();
+                }
+                switchTab('me');
+            }
         });
     }
 
-    // Footer tabs
+    // ─── AI Suggestion chip – summarise current chat ───
+    const aiSuggestion = document.getElementById('aiSuggestion');
+    if (aiSuggestion) {
+        aiSuggestion.addEventListener('click', summarizeCurrentChat);
+    }
+
+    // ─── Footer tabs ───
     document.querySelectorAll('.list-footer .tab').forEach(tab => {
         tab.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
@@ -1841,33 +1570,25 @@ function setupEventListeners() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             if (document.getElementById('chatView')?.classList.contains('open')) closeChat();
-            else if (document.getElementById('aiView')?.classList.contains('open')) closeAiChat();
             else if (document.getElementById('aiOverlay')?.classList.contains('open')) toggleAiOverlay(false);
             else if (document.getElementById('dialpadOverlay')?.classList.contains('open')) {
-                const overlay = document.getElementById('dialpadOverlay');
-                const display = document.getElementById('dialpadDisplayText');
-                const clearBtn = document.getElementById('dialClearBtn');
-                if (overlay) overlay.classList.remove('open');
-                if (display) display.textContent = '';
-                if (clearBtn) clearBtn.style.display = 'none';
+                document.getElementById('dialpadOverlay').classList.remove('open');
+                document.getElementById('dialpadDisplayText').textContent = '';
+                document.getElementById('dialClearBtn').style.display = 'none';
             } else if (document.getElementById('regOverlay')?.classList.contains('open')) {
-                const overlay = document.getElementById('regOverlay');
-                if (overlay) overlay.classList.remove('open');
+                document.getElementById('regOverlay').classList.remove('open');
             } else if (document.getElementById('callDetailsModal')?.classList.contains('active')) {
-                const modal = document.getElementById('callDetailsModal');
-                const card = document.getElementById('callDetailsCard');
-                if (modal) modal.classList.remove('active');
-                if (card) card.style.transform = 'translateY(100%)';
+                document.getElementById('callDetailsModal').classList.remove('active');
+                document.getElementById('callDetailsCard').style.transform = 'translateY(100%)';
             } else if (document.getElementById('saveContactModal')?.classList.contains('active')) {
-                const modal = document.getElementById('saveContactModal');
-                if (modal) modal.classList.remove('active');
+                document.getElementById('saveContactModal').classList.remove('active');
             } else if (document.getElementById('aboutOverlay')?.classList.contains('active')) {
                 toggleAboutPanel(false);
             }
         }
     });
 
-    // Call screen buttons
+    // ─── Call screen buttons ───
     document.getElementById('hangupCallBtn')?.addEventListener('click', () => {
         if (window.PremCall) PremCall.hangup();
         if (window.vibrate) vibrate(15);
@@ -1918,7 +1639,7 @@ function setupEventListeners() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 18. INIT (with safe error handling)
+// 16. INIT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function init() {
     try {
@@ -1938,8 +1659,7 @@ function setupEventListeners() {
         initSettings();
         initRegistration();
         initFabToggle();
-        initContactProfile();
-        initAiChat();
+        initContactProfile();          // <-- NOW CALLED! Wires up contact profile buttons
         renderChatList();
         renderCallList();
         setupEventListeners();
@@ -1948,14 +1668,9 @@ function setupEventListeners() {
         const stored = localStorage.getItem('premCallNumber');
         const verified = localStorage.getItem('premCallVerified') === 'true';
         if (stored && verified && window.PremCall) {
-            const display = document.getElementById('myNumberDisplay');
-            if (display) display.textContent = stored;
+            document.getElementById('myNumberDisplay').textContent = stored;
             PremCall.init(stored);
-            try {
-                if (!firebaseReady) initFirebaseMessaging();
-            } catch (fbErr) {
-                console.warn('Firebase init failed, but app continues:', fbErr);
-            }
+            if (!firebaseReady) initFirebaseMessaging();
         } else if (window.PremCall) {
             PremCall.init('0000000000');
         }
@@ -1964,9 +1679,7 @@ function setupEventListeners() {
         console.log('🚀 Sandesai · All systems ready');
     } catch (err) {
         console.error('❌ Init error:', err);
-        if (window.showToast) {
-            showToast('Init error: ' + (err.message || 'unknown'));
-        }
+        showToast('Init error: ' + (err.message || 'unknown'));
     }
 })();
 
@@ -1988,5 +1701,3 @@ window.closeChat = closeChat;
 window.renderChatList = renderChatList;
 window.renderMessages = renderMessages;
 window.sendMessage = sendMessage;
-window.summarizeCurrentChat = summarizeCurrentChat;
-window.summarizeCall = summarizeCall;

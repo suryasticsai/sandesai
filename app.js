@@ -52,7 +52,7 @@
         const now = ctx.currentTime;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.0001, now);
-        g.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.2, now + 0.01);
         g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
         g.connect(ctx.destination);
         [f1, f2].forEach(f => {
@@ -218,42 +218,88 @@
         c.scrollTop = c.scrollHeight;
     }
 
+    // ---------- TTS with fallback ----------
     function unlockSpeech() {
         if (!window.speechSynthesis || speechUnlocked) return;
-        const p = new SpeechSynthesisUtterance(' ');
-        p.volume = 0;
-        p.onend = () => speechUnlocked = true;
-        window.speechSynthesis.speak(p);
-        setTimeout(() => speechUnlocked = true, 500);
+        try {
+            const p = new SpeechSynthesisUtterance(' ');
+            p.volume = 0;
+            p.onend = () => speechUnlocked = true;
+            window.speechSynthesis.speak(p);
+            setTimeout(() => speechUnlocked = true, 500);
+        } catch (e) {
+            speechUnlocked = true; // fallback
+        }
     }
 
     let speechQueue = Promise.resolve();
 
     function speakText(text) {
-        if (!window.speechSynthesis) return;
+        if (!window.speechSynthesis) {
+            // fallback: show as transcript and toast
+            showToast('🔊 ' + text);
+            return Promise.resolve();
+        }
         const clean = String(text).replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
-        if (!clean) return;
-        if (!speechUnlocked) { unlockSpeech();
-            setTimeout(() => speakText(clean), 300); return; }
-        speechQueue = speechQueue.then(() => new Promise(resolve => {
-            if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
-            setTimeout(() => {
-                const u = new SpeechSynthesisUtterance(clean);
-                u.lang = 'en-US';
-                u.volume = speakerOn ? 1 : 0.9;
-                u.voice = ttsVoices.find(v => v.lang.startsWith('en') && /female|zira|samantha|google/i.test(v.name)) ||
-                    ttsVoices.find(v => v.lang.startsWith('en')) || ttsVoices[0] || null;
-                u.onstart = () => { isSpeaking = true; };
-                u.onend = () => { isSpeaking = false;
-                    resolve(); };
-                u.onerror = () => { isSpeaking = false;
-                    resolve(); };
-                setTimeout(() => resolve(), 12000);
-                try { window.speechSynthesis.speak(u); } catch (e) { resolve(); }
-            }, 60);
-        }));
+        if (!clean) return Promise.resolve();
+
+        return new Promise((resolve) => {
+            if (!speechUnlocked) {
+                unlockSpeech();
+                setTimeout(() => {
+                    speakText(clean).then(resolve);
+                }, 300);
+                return;
+            }
+
+            // Cancel any ongoing speech
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+            }
+
+            const u = new SpeechSynthesisUtterance(clean);
+            u.lang = 'en-US';
+            u.volume = speakerOn ? 1 : 0.9;
+            // Pick a voice
+            const voices = window.speechSynthesis.getVoices();
+            u.voice = voices.find(v => v.lang.startsWith('en') && /female|zira|samantha|google/i.test(v.name)) ||
+                voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
+
+            u.onstart = () => {
+                isSpeaking = true;
+            };
+            u.onend = () => {
+                isSpeaking = false;
+                resolve();
+            };
+            u.onerror = () => {
+                isSpeaking = false;
+                // fallback: show in transcript but no sound
+                showToast('🔊 ' + clean);
+                resolve();
+            };
+
+            // Safety timeout (if speech gets stuck)
+            const timeout = setTimeout(() => {
+                if (isSpeaking) {
+                    isSpeaking = false;
+                    window.speechSynthesis.cancel();
+                    resolve();
+                }
+            }, 10000);
+
+            try {
+                window.speechSynthesis.speak(u);
+            } catch (e) {
+                isSpeaking = false;
+                clearTimeout(timeout);
+                showToast('🔊 ' + clean);
+                resolve();
+            }
+        });
     }
 
+    // ---------- AI ----------
     async function askRAGina(query) {
         try {
             const resp = await fetch(API_URL, {
@@ -268,15 +314,13 @@
         }
     }
 
+    // ---------- PeerJS ----------
     async function getLocalStream(video = false) {
         if (localStream) {
-            // Update video tracks if needed
             if (video && !localStream.getVideoTracks().length) {
                 try {
                     const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    videoStream.getVideoTracks().forEach(track => {
-                        localStream.addTrack(track);
-                    });
+                    videoStream.getVideoTracks().forEach(track => localStream.addTrack(track));
                 } catch (e) {
                     showToast('Could not access camera');
                 }
@@ -322,7 +366,6 @@
                 ra.srcObject = stream;
                 ra.play().catch(() => {});
             }
-            // Handle remote video if present
             const remoteVideo = document.getElementById('remoteVideo');
             if (remoteVideo && stream.getVideoTracks().length) {
                 remoteVideo.srcObject = stream;
@@ -356,10 +399,8 @@
             el.style.pointerEvents = 'none';
         });
         document.querySelector('.fab-button')?.classList.add('hidden');
-        // Show video container if video call
         if (video) {
             document.getElementById('videoContainer').style.display = 'block';
-            // Show local video
             const localVideo = document.getElementById('localVideo');
             if (localStream && localStream.getVideoTracks().length) {
                 localVideo.srcObject = localStream;
@@ -399,7 +440,6 @@
         } else if (number) {
             global.addHistoryEntry(number, 'outgoing', dur);
         }
-        // Stop recording if active
         if (recording) {
             toggleRecording();
         }
@@ -461,17 +501,16 @@
         }
     }
 
-    // RAGina call (unchanged except for video/recording)
+    // ---------- RAGina call ----------
     let conversationState = 0;
     let userName = '';
 
     function startRAGinaCall() {
-        // same as before, with video/recording disabled
-        // (we keep it audio-only for now)
         if (raginaCallActive || inCall) { showToast('Already in a call.'); return; }
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { showToast('Voice calls not supported in this browser.'); return; }
         unlockSpeech();
+        // Get voices
         if (window.speechSynthesis) {
             ttsVoices = window.speechSynthesis.getVoices();
             window.speechSynthesis.onvoiceschanged = () => ttsVoices = window.speechSynthesis.getVoices();
@@ -497,23 +536,123 @@
         });
         document.querySelector('.fab-button')?.classList.add('hidden');
         startTimer();
-        setTimeout(() => {
+
+        setTimeout(async () => {
             if (!raginaCallActive) return;
             document.getElementById('callSubstatus').textContent = 'Connected';
             const wrap2 = document.getElementById('callRingWrap');
             if (wrap2) wrap2.classList.remove('ring-anim');
-            const g = "Hello! I'm RAGina. What is your name?";
-            logMsg('ragina', g);
-            speakText(g);
-            setTimeout(listenToRAGina, 800);
+            const greeting = "Hello! I'm RAGina. What is your name?";
+            logMsg('ragina', greeting);
+            // Speak and wait for it to finish before listening
+            await speakText(greeting);
+            // Start listening after speech ends
+            listenToRAGina();
         }, 1200);
     }
 
-    function listenToRAGina() { /* unchanged */ }
+    function listenToRAGina() {
+        if (!raginaCallActive || raginaIsMuted || isSpeaking || raginaRecognition) {
+            if (raginaCallActive && !raginaIsMuted && !raginaRecognition && !isSpeaking) {
+                setTimeout(listenToRAGina, 600);
+            }
+            return;
+        }
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return;
+        const rec = new SR();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = 'en-US';
+        rec.maxAlternatives = 1;
 
-    function endRAGinaCall() { /* unchanged */ }
+        rec.onresult = async (e) => {
+            if (isSpeaking) return;
+            const text = e.results[0][0].transcript;
+            if (!text.trim()) return;
+            logMsg('user', text.trim());
 
-    // ---- Recording ----
+            if (conversationState === 0) {
+                let name = text.trim();
+                const stopWords = ['um', 'uh', 'my name is', 'i am', "i'm"];
+                for (let sw of stopWords) {
+                    if (name.toLowerCase().startsWith(sw)) {
+                        name = name.slice(sw.length).trim();
+                        break;
+                    }
+                }
+                userName = name || 'Friend';
+                conversationState = 1;
+                const r = 'Nice to meet you, ' + userName + '. What can I help you with today?';
+                logMsg('ragina', r);
+                await speakText(r);
+                // After speaking, listen again
+                setTimeout(listenToRAGina, 800);
+            } else {
+                document.getElementById('callSubstatus').textContent = 'RAGina is thinking…';
+                const ans = await askRAGina(text);
+                if (!raginaCallActive) return;
+                document.getElementById('callSubstatus').textContent = 'Connected';
+                logMsg('ragina', ans);
+                await speakText(ans);
+                setTimeout(listenToRAGina, 800);
+            }
+        };
+
+        rec.onerror = (e) => {
+            console.warn('RAGina recognition error:', e.error);
+            if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+                showToast('Microphone denied. Ending call.');
+                endRAGinaCall();
+                return;
+            }
+            raginaRecognition = null;
+            if (raginaCallActive && !raginaIsMuted && !isSpeaking) {
+                setTimeout(listenToRAGina, 600);
+            }
+        };
+
+        rec.onend = () => {
+            raginaRecognition = null;
+            if (raginaCallActive && !raginaIsMuted && !isSpeaking) {
+                setTimeout(listenToRAGina, 500);
+            }
+        };
+
+        raginaRecognition = rec;
+        try { rec.start(); } catch (e) {
+            raginaRecognition = null;
+            if (raginaCallActive && !raginaIsMuted) setTimeout(listenToRAGina, 600);
+        }
+    }
+
+    function endRAGinaCall() {
+        if (!raginaCallActive) return;
+        raginaCallActive = false;
+        isSpeaking = false;
+        if (raginaRecognition) {
+            try { raginaRecognition.stop(); } catch (e) {}
+            raginaRecognition = null;
+        }
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        const dur = stopTimer();
+        const log = endLog(dur);
+        document.getElementById('callScreen').classList.remove('active');
+        const wrap = document.getElementById('callRingWrap');
+        if (wrap) wrap.classList.remove('ring-anim');
+        document.getElementById('dialCallBtn')?.classList.remove('disabled');
+        document.querySelectorAll('.view, .list-footer, .list-header, .fab-button').forEach(el => {
+            el.style.opacity = '';
+            el.style.pointerEvents = '';
+        });
+        document.querySelector('.fab-button')?.classList.remove('hidden');
+        if (log) {
+            global.addHistoryEntry(log.number, log.direction, dur, log.id);
+        }
+        showToast('Call with RAGina ended');
+    }
+
+    // ---------- Recording & Video ----------
     function toggleRecording() {
         if (!inCall && !raginaCallActive) {
             showToast('No active call to record');
@@ -521,12 +660,6 @@
         }
         recording = !recording;
         if (recording) {
-            // Start recording the audio from the call (remote + local)
-            // We'll combine remote audio and local mic? For simplicity, record the audio output.
-            // Use MediaRecorder on the remote audio element if possible, or on the local stream.
-            // Since we have localStream and remote stream, we can create a new stream with both.
-            // For now, we'll record the localStream (audio) + remote audio (via captureStream?).
-            // Easier: record the local stream only, or use a mix. For demo, we'll record local audio.
             if (!localStream) {
                 showToast('No local stream available');
                 recording = false;
@@ -569,7 +702,6 @@
         }
     }
 
-    // ---- Video toggle ----
     function videoToggle() {
         if (!inCall && !raginaCallActive) {
             showToast('No active call');
@@ -578,17 +710,14 @@
         if (!localStream) return false;
         const videoTracks = localStream.getVideoTracks();
         if (videoTracks.length) {
-            // Toggle enabled
             const enabled = videoTracks[0].enabled;
             videoTracks.forEach(t => t.enabled = !enabled);
             videoEnabled = !enabled;
         } else {
-            // Add video
             navigator.mediaDevices.getUserMedia({ video: true })
                 .then(videoStream => {
                     videoStream.getVideoTracks().forEach(track => {
                         localStream.addTrack(track);
-                        // Also send to peer
                         if (activeCall) {
                             activeCall.addStream(localStream);
                         }
@@ -605,7 +734,6 @@
                 .catch(() => showToast('Could not access camera'));
             return videoEnabled;
         }
-        // If video disabled, hide container if no video tracks
         if (!videoTracks.some(t => t.enabled)) {
             document.getElementById('videoContainer').style.display = 'none';
         }
@@ -613,7 +741,7 @@
         return videoEnabled;
     }
 
-    // ---- Public API ----
+    // ---------- Public API ----------
     const PremCall = {
         RAGINA_NUMBER,
 
@@ -651,7 +779,6 @@
             incomingCall = null;
             hideIncomingOverlay();
             try {
-                // Determine if video is present in the call?
                 const hasVideo = call.metadata && call.metadata.video;
                 const stream = await getLocalStream(hasVideo || false);
                 if (!stream) return;
@@ -729,11 +856,50 @@
         getLastLog: () => lastLog,
 
         exportLog: function(log, format) {
-            // same as before
+            if (!log) { showToast('No call selected.'); return; }
+            let content, filename, mime;
+            const stamp = new Date(log.started).toISOString().replace(/[:.]/g, '-');
+            const buildLogText = (l) => {
+                let out = 'Sandesai Transcript\nNumber: ' + l.number + '\nType: ' + (l.type === 'ragina' ? 'RAGina AI Call' : 'Voice Call') +
+                    '\nDirection: ' + l.direction + '\nStarted: ' + new Date(l.started).toLocaleString() + '\nDuration: ' + (l
+                        .duration || '—') + '\n';
+                if (l.summary) out += 'AI Recap: ' + l.summary + '\n';
+                out += '\n' + (l.messages.length ? l.messages.map(m => '[' + new Date(m.timestamp).toLocaleTimeString() +
+                    '] ' + (m.role === 'user' ? 'You' : (l.type === 'ragina' ? 'RAGina' : 'Live')) + ': ' + m.text).join(
+                    '\n') : '(no transcript recorded)');
+                return out;
+            };
+            const buildLogJSON = (l) => {
+                return { number: l.number, type: l.type, direction: l.direction, started: new Date(l.started).toISOString(),
+                    ended: l.ended ? new Date(l.ended).toISOString() : null, duration: l.duration || null,
+                    aiSummary: l.summary || null, messages: l.messages };
+            };
+            if (format === 'json') {
+                content = JSON.stringify(buildLogJSON(log), null, 2);
+                filename = 'sandesai-' + stamp + '.json';
+                mime = 'application/json';
+            } else {
+                content = buildLogText(log);
+                filename = 'sandesai-' + stamp + '.txt';
+                mime = 'text/plain';
+            }
+            const url = URL.createObjectURL(new Blob([content], { type: mime }));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
+            showToast('Saved ' + format.toUpperCase());
         },
 
         logText: function(log) {
-            // same as before
+            return buildLogText(log);
+        },
+
+        updateLogSummary: function(id, summary) {
+            updateLogSummary(id, summary);
         },
 
         unlockSpeech,

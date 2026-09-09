@@ -48,7 +48,7 @@
                 <div class="actions">
                     <!-- <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>-->
                     <!-- In the header actions, add this button after aboutBtn -->
-                    <button id="openAiChatBtn" data-depth="0.20" title="AI Chat"><i class="fas fa-robot"></i></button> 
+                    <button id="openAiChatBtn" data-depth="0.20" title="AI Chat"><i class="fa-solid fa-feather-pointed"></i></button> 
                     <button id="aboutBtn" data-depth="0.20"><i class="fas fa-ellipsis-vertical"></i></button>
                 </div>
             </header>
@@ -158,7 +158,7 @@
                 <div class="right">
                     <button class="call-btn" id="chatCallBtn" data-depth="0.15" title="Voice Call"><i class="fas fa-phone"></i></button>
                     <button class="video-btn" id="chatVideoBtn" data-depth="0.20" title="Video Call"><i class="fas fa-video"></i></button>
-                    <button class="ai-assist-btn" id="openAiFromChat" data-depth="0.25"><i class="fas fa-sparkles"></i></button>
+                    <button class="ai-assist-btn" id="openAiFromChat" data-depth="0.25"><i class="fa-solid fa-feather"></i></button>
                     <button id="openProfileBtn" data-depth="0.15"><i class="fas fa-user-circle"></i></button>
                 </div>
             </header>
@@ -167,7 +167,7 @@
 
             <div class="ai-suggestion" id="aiSuggestion" data-depth="0.12">
                 <i class="fas fa-sparkles"></i>
-                <span>AI: Summarize this conversation</span>
+                <span><i class="fa-solid fa-feather-pointed"></i> AI: Summarize this conversation</span>
             </div>
 
             <div class="chat-input" data-depth="0.08">
@@ -209,7 +209,41 @@
         </div>
     </div>
 </div>
-
+        <!-- ===== CONTACT PROFILE OVERLAY ===== -->
+<div id="contactProfileOverlay" style="display:none;position:absolute;inset:0;z-index:15;background:rgba(8,6,20,0.92);backdrop-filter:blur(16px);flex-direction:column;align-items:center;padding:2rem 1.5rem;overflow-y:auto;border-radius:inherit;">
+    <div style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+        <button id="contactProfileBack" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;">←</button>
+        <span style="font-weight:600;font-size:1rem;color:#7a89a8;">Profile</span>
+        <div style="width:40px;"></div>
+    </div>
+    
+    <div id="contactProfileAvatar" style="width:100px;height:100px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:3rem;font-weight:700;color:#fff;box-shadow:0 8px 40px rgba(0,0,0,0.5);margin-bottom:0.5rem;">
+        <span id="contactProfileAvatarText">U</span>
+    </div>
+    <div id="contactProfileName" style="font-size:1.4rem;font-weight:700;color:#f0f2f7;">Unknown</div>
+    <div id="contactProfileUsername" style="font-size:0.9rem;color:#7a89a8;margin-top:0.1rem;">@username</div>
+    <div id="contactProfilePhone" style="font-size:0.85rem;color:#5a6885;margin-top:0.1rem;">+91 0000000000</div>
+    <div id="contactProfileBio" style="font-size:0.85rem;color:#5a6885;margin-top:0.3rem;text-align:center;max-width:300px;cursor:pointer;">Tap to add a short bio</div>
+    
+    <div style="display:flex;gap:1.2rem;margin-top:1.2rem;">
+        <button id="contactProfileCall" style="padding:0.6rem 1.5rem;border-radius:30px;border:none;background:linear-gradient(135deg,#2fd992,#17a06a);color:#fff;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-phone"></i> Call</button>
+        <button id="contactProfileVideo" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:rgba(79,140,247,0.08);color:#4f8cf7;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-video"></i></button>
+        <button id="contactProfileMessage" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.08);color:#a78bfa;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-comment"></i> Msg</button>
+    </div>
+    
+    <div id="contactBioEditor" style="display:none;width:100%;max-width:320px;margin-top:1rem;">
+        <input id="contactBioInput" type="text" placeholder="Enter bio..." style="width:100%;padding:0.6rem 1rem;border-radius:12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.04);color:#eef0f5;font-size:0.9rem;outline:none;font-family:'Inter',sans-serif;" />
+        <div style="display:flex;gap:0.5rem;margin-top:0.4rem;">
+            <button id="contactBioSave" style="flex:1;padding:0.4rem;border-radius:10px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;cursor:pointer;">Save</button>
+            <button id="contactBioCancel" style="flex:1;padding:0.4rem;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;cursor:pointer;">Cancel</button>
+        </div>
+    </div>
+    
+    <div style="margin-top:1.2rem;width:100%;max-width:320px;border-top:1px solid rgba(255,255,255,0.04);padding-top:0.8rem;">
+        <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;">Recent calls</div>
+        <div id="contactProfileRecentCalls" style="font-size:0.8rem;color:#7a89a8;"></div>
+    </div>
+</div>
         <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
@@ -248,12 +282,12 @@
         <div class="ai-overlay" id="aiOverlay">
             <div class="ai-card">
                 <div class="ai-header">
-                    <h2><i class="fas fa-brain"></i> AI Studio</h2>
+                    <h2><i class="fa-solid fa-feather-pointed"></i> AI Studio</h2>
                     <button class="close-ai" id="closeAiBtn"><i class="fas fa-xmark"></i></button>
                 </div>
                 <p class="ai-subtitle">Supercharge your chat</p>
                 <div class="ai-features">
-                    <div class="feat"><i class="fas fa-robot"></i><span>Smart Replies</span><small>AI suggestions</small></div>
+                    <div class="feat"><i class="fa-solid fa-feather-pointed"></i><span>Smart Replies</span><small>AI suggestions</small></div>
                     <div class="feat"><i class="fas fa-language"></i><span>Translate</span><small>Real-time</small></div>
                     <div class="feat"><i class="fas fa-file-lines"></i><span>Summarize</span><small>Chat summary</small></div>
                     <div class="feat"><i class="fas fa-pen-fancy"></i><span>Rewrite</span><small>Improve text</small></div>
@@ -406,10 +440,10 @@
                     <button class="details-export-btn" data-format="txt" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 TXT</button>
                     <button class="details-export-btn" data-format="json" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 JSON</button>
                     <button class="details-export-btn" data-format="share" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.7rem;cursor:pointer;">↗ Share</button>
-                    <button class="details-summarize-btn" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,182,72,0.2);background:rgba(255,182,72,0.08);color:#ffb648;font-weight:500;font-size:0.7rem;cursor:pointer;">🧠 Summarize</button>
+                    
                 </div>
-                <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.06);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;align-items:center;">
-                    <i class="fas fa-shield"></i> Safety tools
+                <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.06);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;text-align:center;">
+                    <i class="fas fa-shield"></i> Your conversations are end to end encrypted 
                 </div>
             </div>
         </div>
@@ -436,6 +470,7 @@
                 <button id="saveContactConfirm" style="width:100%;padding:0.7rem;border-radius:16px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-weight:600;font-size:0.95rem;cursor:pointer;">Save</button>
             </div>
         </div>
+        
 
         <!-- ===== ABOUT OVERLAY ===== -->
         <div id="aboutOverlay" style="display:none;position:absolute;inset:0;z-index:100;background:rgba(8,6,20,0.7);backdrop-filter:blur(12px);align-items:center;justify-content:center;border-radius:inherit;">
