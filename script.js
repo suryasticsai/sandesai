@@ -39,7 +39,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 2. CONTACTS DATA (default + saved)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const defaultContacts = []; // add array for dummy data
+const defaultContacts = [];
 
 function getSavedContacts() {
     try { return JSON.parse(localStorage.getItem('savedContacts')) || []; } catch (e) { return []; }
@@ -76,9 +76,9 @@ function getContactName(number) {
 
 function getAllContacts() {
     const saved = getSavedContacts();
-    const all = [...defaultContacts];
+    const all = [];
     saved.forEach(sc => {
-        if (!all.find(c => c.name === sc.name || (c.number && c.number === sc.number))) {
+        if (!all.find(c => c.number === sc.number)) {
             all.push({
                 id: sc.id,
                 name: sc.name,
@@ -110,7 +110,7 @@ let db = null, auth = null;
 let myNumber = null;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. FIREBASE MESSAGING (with auto‑repair on number mismatch)
+// 4. FIREBASE MESSAGING (auto-repair on number mismatch)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
@@ -157,12 +157,10 @@ function startMessaging() {
             if (doc.exists) {
                 const mapped = doc.data().number;
                 if (mapped !== myNumber) {
-                    // Auto-repair: update mapping to new number
                     console.warn('Number mismatch: ' + mapped + ' vs ' + myNumber + '. Updating mapping...');
                     const batch = db.batch();
                     batch.update(db.collection('uids').doc(uid), { number: myNumber });
                     batch.set(db.collection('users').doc(myNumber), { uid: uid });
-                    // Optionally delete old user doc? We'll keep it for history.
                     return batch.commit().then(() => {
                         console.log('✅ Mapping updated to new number: ' + myNumber);
                         showToast('Number updated in messaging system');
@@ -171,7 +169,6 @@ function startMessaging() {
                     return Promise.resolve();
                 }
             } else {
-                // Create mapping
                 const batch = db.batch();
                 batch.set(db.collection('users').doc(myNumber), { uid: uid });
                 batch.set(db.collection('uids').doc(uid), { number: myNumber });
@@ -180,7 +177,6 @@ function startMessaging() {
         });
     }).then(() => {
         console.log('Messaging ready');
-        // Presence
         db.collection('presence').doc(myNumber).set({ lastSeen: Date.now() }, { merge: true });
         setInterval(() => {
             db.collection('presence').doc(myNumber).set({ lastSeen: Date.now() }, { merge: true });
@@ -231,7 +227,6 @@ function listenPeerConversation(peer) {
     if (conversationListeners[peer]) return;
     if (!db || !myNumber) return;
     const convId = [myNumber, peer].sort().join('_');
-    // Removed .orderBy('timestamp') to avoid index requirement – sort client‑side
     const unsub = db.collection('messages')
         .where('conversationId', '==', convId)
         .onSnapshot(snapshot => {
@@ -275,7 +270,7 @@ function sendMessageToFirestore(peer, text) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. RENDER FUNCTIONS (Chat List, Messages, Call List, Profile)
+// 5. RENDER FUNCTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderChatList() {
     const container = document.getElementById('chatList');
@@ -332,7 +327,7 @@ function renderChatList() {
                 <span class="status-dot ${c.online ? '' : 'offline'}"></span>
             </div>
             <div class="info">
-                <div class="name">${c.name} ${savedBadge}${c.id === 4 ? '<span class="badge-ai">AI</span>' : ''}</div>
+                <div class="name">${c.name} ${savedBadge}</div>
                 <div class="msg-preview">${c.lastMsg || ' '}</div>
             </div>
             <div class="meta">
@@ -340,7 +335,6 @@ function renderChatList() {
                 ${c.unread > 0 ? `<div class="unread">${c.unread}</div>` : ''}
             </div>
         `;
-        // Click handler – opens chat view, NOT profile
         div.addEventListener('click', (e) => {
             e.stopPropagation();
             const number = c.number || c.name;
@@ -420,6 +414,11 @@ function renderCallList() {
         const dirIcon = hasMissed ? 'fa-phone-slash' : (dir === 'incoming' ? 'fa-phone-arrow-down' : 'fa-phone-arrow-up');
         const dirClass = hasMissed ? 'missed' : (dir === 'incoming' ? 'incoming' : 'outgoing');
 
+        let dirLabel = '';
+        if (hasMissed) dirLabel = 'Missed';
+        else if (dir === 'incoming') dirLabel = 'Incoming';
+        else if (dir === 'outgoing') dirLabel = 'Outgoing';
+
         const div = document.createElement('div');
         div.className = 'call-item';
         div.style.padding = '12px 0';
@@ -439,8 +438,8 @@ function renderCallList() {
                         ${isSaved ? '<span style="font-size:0.6rem;color:#2fd992;">⭐</span>' : ''}
                     </div>
                     <div style="font-size:0.75rem;color:#7a89a8;display:flex;align-items:center;gap:4px;margin-top:1px;">
-                        <i class="fas ${dirIcon}" style="font-size:0.6rem;color:${hasMissed ? '#ef4444' : '#5a6885'};"></i>
-                        ${hasMissed ? 'Missed · ' : ''}
+                        <span style="font-weight:500;color:${hasMissed ? '#ef4444' : dir === 'incoming' ? '#2fd992' : '#4f8cf7'};">${dirLabel}</span>
+                        <span>·</span>
                         ${time}
                     </div>
                 </div>
@@ -465,7 +464,7 @@ function renderCallList() {
                 const action = btn.dataset.action;
                 const num = btn.dataset.number;
                 if (action === 'call') {
-                    if (window.PremCall) PremCall.call(num);
+                    if (window.PremCall) PremCall.call(num, false);
                 } else if (action === 'message') {
                     switchTab('chat');
                     openChat(num);
@@ -481,10 +480,9 @@ function renderCallList() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. PROFILE VIEW (full panel)
+// 6. PROFILE VIEW
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderProfileView() {
-    // Update the profile panel content
     const savedUser = localStorage.getItem('neonUser');
     let userName = 'User', userPhone = '';
     if (savedUser) {
@@ -502,7 +500,6 @@ function renderProfileView() {
     document.getElementById('profilePhoneFull').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
     document.getElementById('profileTimeFull').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
 
-    // Update registration link visibility
     const link = document.querySelector('.registration-link');
     if (savedUser) {
         try {
@@ -592,7 +589,7 @@ function sendMessage() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. SETTINGS & THEME (unchanged)
+// 8. SETTINGS & THEME
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initSettings() {
     document.querySelectorAll('.theme-btn').forEach(btn => {
@@ -651,7 +648,7 @@ function applyTheme(theme) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 9. REGISTRATION (unchanged)
+// 9. REGISTRATION
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initRegistration() {
     const overlay = document.getElementById('regOverlay');
@@ -767,50 +764,61 @@ function updateStatusBadge(user) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 10. FAB, DIALPAD, FAB TOGGLE, AI, TOAST, ABOUT, DEBUG
+// 10. FAB, DIALPAD
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFab() {
     const fab = document.getElementById('fabButton');
     if (!fab) return;
     fab.addEventListener('click', function() {
         document.getElementById('dialpadOverlay').classList.add('open');
+        document.getElementById('dialpadDisplayText').textContent = '';
+        document.getElementById('dialClearBtn').style.display = 'none';
     });
 }
 
 function initDialpad() {
     const overlay = document.getElementById('dialpadOverlay');
-    const display = document.getElementById('dialpadDisplay');
-    if (!overlay || !display) return;
+    const displayText = document.getElementById('dialpadDisplayText');
+    const clearBtn = document.getElementById('dialClearBtn');
+    if (!overlay || !displayText) return;
     let number = '';
 
     const closeDialpad = () => {
         overlay.classList.remove('open');
         number = '';
-        display.textContent = '';
+        displayText.textContent = '';
+        clearBtn.style.display = 'none';
     };
 
     document.getElementById('dialpadClose').addEventListener('click', closeDialpad);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDialpad(); });
 
+    function updateDisplay() {
+        displayText.textContent = number;
+        clearBtn.style.display = number.length > 0 ? 'block' : 'none';
+    }
+
     document.querySelectorAll('.dial-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = btn.dataset.value;
             number += val;
-            display.textContent = number;
+            updateDisplay();
             if (window.PremCall) PremCall.playDtmf(val);
         });
     });
 
-    document.getElementById('dialDelete').addEventListener('click', () => {
+    clearBtn.addEventListener('click', () => {
         number = number.slice(0, -1);
-        display.textContent = number;
+        updateDisplay();
     });
 
     document.getElementById('dialCall').addEventListener('click', () => {
         if (number.trim()) {
             if (/^\d{10}$/.test(number)) {
                 overlay.classList.remove('open');
-                if (window.PremCall) PremCall.call(number);
+                if (window.PremCall) PremCall.call(number, false);
+                number = '';
+                updateDisplay();
             } else {
                 showToast('Enter exactly 10 digits');
             }
@@ -818,8 +826,30 @@ function initDialpad() {
             showToast('Enter a number');
         }
     });
+
+    document.getElementById('dialMessage').addEventListener('click', () => {
+        if (number.trim()) {
+            if (/^\d{10}$/.test(number)) {
+                overlay.classList.remove('open');
+                switchTab('chat');
+                if (!conversationListeners[number]) {
+                    listenPeerConversation(number);
+                }
+                openChat(number);
+                number = '';
+                updateDisplay();
+            } else {
+                showToast('Enter exactly 10 digits to message');
+            }
+        } else {
+            showToast('Enter a number');
+        }
+    });
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 11. FAB TOGGLE, AI, TOAST, ABOUT, DEBUG
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function initFabToggle() {
     const toggle = document.getElementById('fabToggle');
     const fab = document.getElementById('fabButton');
@@ -955,7 +985,7 @@ function initDebugConsole() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 11. CALL DETAILS MODAL (unchanged)
+// 12. CALL DETAILS MODAL & SAVE CONTACT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
@@ -1061,14 +1091,14 @@ window.openCallDetails = function(logId) {
         btn.onclick = () => {
             const action = btn.dataset.action;
             if (action === 'call') {
-                if (window.PremCall) PremCall.call(number);
+                if (window.PremCall) PremCall.call(number, false);
                 modal.classList.remove('active');
             } else if (action === 'message') {
                 modal.classList.remove('active');
                 switchTab('chat');
                 openChat(number);
             } else if (action === 'video') {
-                showToast('📹 Video call coming soon');
+                if (window.PremCall) PremCall.call(number, true);
                 modal.classList.remove('active');
             }
         };
@@ -1089,9 +1119,6 @@ window.openCallDetails = function(logId) {
     };
 };
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 12. SAVE CONTACT MODAL
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function openSaveContactModal(number) {
     const modal = document.getElementById('saveContactModal');
     document.getElementById('saveContactPhone').value = number;
@@ -1120,7 +1147,7 @@ function openSaveContactModal(number) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 13. EVENT LISTENERS
+// 13. EVENT LISTENERS (FIXED – all call/video buttons work)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function setupEventListeners() {
     const backBtn = document.getElementById('backBtn');
@@ -1131,6 +1158,58 @@ function setupEventListeners() {
     const msgInput = document.getElementById('msgInput');
     if (msgInput) msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
 
+    // ─── Chat header: Call & Video buttons ───
+    // Using both ID and class for robustness
+    const chatCallBtn = document.getElementById('chatCallBtn');
+    const chatVideoBtn = document.getElementById('chatVideoBtn');
+    if (chatCallBtn) {
+        chatCallBtn.addEventListener('click', () => {
+            if (activeChatPeer && window.PremCall) {
+                PremCall.call(activeChatPeer, false);
+            } else {
+                showToast('No active chat');
+            }
+        });
+    }
+    if (chatVideoBtn) {
+        chatVideoBtn.addEventListener('click', () => {
+            if (activeChatPeer && window.PremCall) {
+                PremCall.call(activeChatPeer, true);
+            } else {
+                showToast('No active chat');
+            }
+        });
+    }
+    // Also fallback to class selectors if ids are missing
+    document.querySelector('.call-btn')?.addEventListener('click', () => {
+        if (activeChatPeer && window.PremCall) {
+            PremCall.call(activeChatPeer, false);
+        } else {
+            showToast('No active chat');
+        }
+    });
+    document.querySelector('.video-btn')?.addEventListener('click', () => {
+        if (activeChatPeer && window.PremCall) {
+            PremCall.call(activeChatPeer, true);
+        } else {
+            showToast('No active chat');
+        }
+    });
+
+    // ─── Voice button in chat input ───
+    document.querySelector('.voice-btn')?.addEventListener('click', () => {
+        if (activeChatPeer && window.PremCall) {
+            // Start a voice call to the current peer
+            PremCall.call(activeChatPeer, false);
+        } else {
+            // If no chat is open, open the dialpad
+            document.getElementById('dialpadOverlay').classList.add('open');
+            document.getElementById('dialpadDisplayText').textContent = '';
+            document.getElementById('dialClearBtn').style.display = 'none';
+        }
+    });
+
+    // ─── AI buttons ───
     const openAiBtn = document.getElementById('openAiBtn');
     if (openAiBtn) openAiBtn.addEventListener('click', () => toggleAiOverlay(true));
     const openAiFromChat = document.getElementById('openAiFromChat');
@@ -1162,7 +1241,7 @@ function setupEventListeners() {
         });
     }
 
-    // Profile button in chat header – now switches to Me tab
+    // Profile button in chat header – switches to Me tab
     const openProfileBtn = document.getElementById('openProfileBtn');
     if (openProfileBtn) openProfileBtn.addEventListener('click', () => {
         if (document.getElementById('chatView').classList.contains('open')) {
@@ -1171,14 +1250,11 @@ function setupEventListeners() {
         switchTab('me');
     });
 
-    // Close profile via the close button is no longer needed; we use the back button or tab switch.
-    // But we keep the old close-profile button for compatibility? It's not in the new profile view.
-    // We removed the slide-out panel, so we don't need the close button.
-
     const aiSuggestion = document.getElementById('aiSuggestion');
     if (aiSuggestion) {
         aiSuggestion.addEventListener('click', () => {
-            const contact = getAllContacts().find(c => c.id === activeContactId);
+            const allContacts = getAllContacts();
+            const contact = allContacts.find(c => c.id === activeContactId);
             if (!contact) return;
             const summary = `📊 This chat has ${(contact.messages || []).length} messages. Last: "${contact.messages[contact.messages.length-1]?.text || 'none'}"`;
             const now = new Date();
@@ -1190,10 +1266,7 @@ function setupEventListeners() {
         });
     }
 
-    document.querySelector('.voice-btn')?.addEventListener('click', () => showToast('🎤 Voice (WebRTC ready)'));
-    document.querySelector('.call-btn')?.addEventListener('click', () => showToast('📞 Call (WebRTC ready)'));
-    document.querySelector('.video-btn')?.addEventListener('click', () => showToast('📹 Video (WebRTC ready)'));
-
+    // Footer tabs
     document.querySelectorAll('.list-footer .tab').forEach(tab => {
         tab.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
@@ -1222,7 +1295,8 @@ function setupEventListeners() {
             else if (document.getElementById('aiOverlay')?.classList.contains('open')) toggleAiOverlay(false);
             else if (document.getElementById('dialpadOverlay')?.classList.contains('open')) {
                 document.getElementById('dialpadOverlay').classList.remove('open');
-                document.getElementById('dialpadDisplay').textContent = '';
+                document.getElementById('dialpadDisplayText').textContent = '';
+                document.getElementById('dialClearBtn').style.display = 'none';
             } else if (document.getElementById('regOverlay')?.classList.contains('open')) {
                 document.getElementById('regOverlay').classList.remove('open');
             } else if (document.getElementById('callDetailsModal')?.classList.contains('active')) {
@@ -1236,7 +1310,7 @@ function setupEventListeners() {
         }
     });
 
-    // Call screen buttons (handled by app.js, but we keep UI)
+    // Call screen buttons (wired to PremCall)
     document.getElementById('hangupCallBtn')?.addEventListener('click', () => {
         if (window.PremCall) PremCall.hangup();
         if (window.vibrate) vibrate(15);
@@ -1254,12 +1328,19 @@ function setupEventListeners() {
         this.classList.toggle('active', s);
         showToast(s ? 'Speaker on' : 'Speaker off');
     });
-    document.getElementById('videoBtn')?.addEventListener('click', function() {
+    document.getElementById('videoToggleBtn')?.addEventListener('click', function() {
         if (!window.PremCall) return;
-        const v = PremCall.video();
+        const v = PremCall.videoToggle();
         this.classList.toggle('active', v);
         this.innerHTML = v ? '<i class="fas fa-video-slash"></i>' : '<i class="fas fa-video"></i>';
         showToast(v ? 'Video on' : 'Video off');
+    });
+    document.getElementById('recordBtn')?.addEventListener('click', function() {
+        if (!window.PremCall) return;
+        const recording = PremCall.toggleRecording();
+        this.classList.toggle('active', recording);
+        this.innerHTML = recording ? '<i class="fas fa-stop-circle"></i>' : '<i class="fas fa-circle"></i>';
+        showToast(recording ? 'Recording started' : 'Recording stopped');
     });
     document.getElementById('answerBtn')?.addEventListener('click', () => {
         if (window.PremCall) PremCall.answer();
@@ -1275,26 +1356,6 @@ function setupEventListeners() {
     if (aboutClose) aboutClose.addEventListener('click', () => toggleAboutPanel(false));
     const aboutOverlay = document.getElementById('aboutOverlay');
     if (aboutOverlay) aboutOverlay.addEventListener('click', (e) => { if (e.target === aboutOverlay) toggleAboutPanel(false); });
-
-    const newChatBtn = document.getElementById('newChatBtn');
-    if (newChatBtn) {
-        newChatBtn.addEventListener('click', function() {
-            if (!firebaseReady) {
-                showToast('Messaging not ready, please register first');
-                return;
-            }
-            const num = prompt('Enter 10-digit number to start a chat:');
-            if (num && /^\d{10}$/.test(num.trim())) {
-                const trimmed = num.trim();
-                if (!conversationListeners[trimmed]) {
-                    listenPeerConversation(trimmed);
-                }
-                openChat(trimmed);
-            } else if (num) {
-                showToast('Invalid number');
-            }
-        });
-    }
 
     console.log('✅ Sandesai · All event listeners attached');
 }
@@ -1335,16 +1396,14 @@ function setupEventListeners() {
             PremCall.init('0000000000');
         }
 
-        // Ensure correct tab is shown (default chat)
         switchTab('chat');
-
         console.log('🚀 Sandesai · All systems ready');
     } catch (err) {
         console.error('❌ Init error:', err);
     }
 })();
 
-// Expose functions globally for app.js integration
+// Expose globals
 window.renderCallList = renderCallList;
 window.openCallDetails = window.openCallDetails;
 window.addHistoryEntry = function(number, direction, duration, logId) {
