@@ -1,5 +1,6 @@
 // ============================================================
-// APP.JS – Calling Core (PeerJS, RAGina, Video, Recording)
+// APP.JS – Calling Core (PeerJS, RAGina, Video, Recording,
+//          Firestore signaling fallback, chunked file transfer)
 // ============================================================
 
 (function(global) {
@@ -8,7 +9,6 @@
     const RAGINA_NUMBER = '0000000000';
     const API_URL = 'https://ragina-crawler-ragina.vercel.app/api/ask';
 
-    // Reference to file-transfer module (js/fileTransfer.js) — loaded before app.js
     const FileTransfer = global.FileTransfer || null;
 
     let peer = null;
@@ -37,17 +37,19 @@
     let ttsVoices = [];
     let speechUnlocked = false;
 
-    // ── File transfer state ──
-    let activeDataConn = null;   // PeerJS DataConnection used for chunked file transfer
-    let fileSendQueue = [];      // queued files waiting for the DataConnection to open
+    // File transfer state
+    let activeDataConn = null;
+    let fileSendQueue = [];
+
+    // Firestore signaling (via script.js)
+    let currentCallSignalId = null;
 
     let actx = null;
 
     function audioCtx() {
         if (!actx) {
-            try {
-                actx = new(window.AudioContext || window.webkitAudioContext)();
-            } catch (e) { return null; }
+            try { actx = new(window.AudioContext || window.webkitAudioContext)(); }
+            catch (e) { return null; }
         }
         if (actx.state === 'suspended') actx.resume().catch(() => {});
         return actx;
@@ -74,42 +76,25 @@
     }
 
     const DTMF = {
-        '1': [697, 1209],
-        '2': [697, 1336],
-        '3': [697, 1477],
-        '4': [770, 1209],
-        '5': [770, 1336],
-        '6': [770, 1477],
-        '7': [852, 1209],
-        '8': [852, 1336],
-        '9': [852, 1477],
-        '*': [941, 1209],
-        '0': [941, 1336],
-        '#': [941, 1477]
+        '1': [697, 1209], '2': [697, 1336], '3': [697, 1477],
+        '4': [770, 1209], '5': [770, 1336], '6': [770, 1477],
+        '7': [852, 1209], '8': [852, 1336], '9': [852, 1477],
+        '*': [941, 1209], '0': [941, 1336], '#': [941, 1477]
     };
 
-    function playDtmf(d) {
-        const t = DTMF[d];
-        if (t) beep(t[0], t[1], 0.08);
-    }
+    function playDtmf(d) { const t = DTMF[d]; if (t) beep(t[0], t[1], 0.08); }
 
     function startRingtone() {
         stopRingtone();
         beep(440, 480, 0.35);
         ringtoneTimer = setInterval(() => beep(440, 480, 0.35), 1600);
     }
-
     function stopRingtone() {
-        if (ringtoneTimer) {
-            clearInterval(ringtoneTimer);
-            ringtoneTimer = null;
-        }
+        if (ringtoneTimer) { clearInterval(ringtoneTimer); ringtoneTimer = null; }
     }
 
     function vibrate(p) {
-        if (navigator.vibrate) {
-            try { navigator.vibrate(p); } catch (e) {}
-        }
+        if (navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} }
     }
     global.vibrate = vibrate;
 
@@ -127,10 +112,7 @@
     }
 
     function stopTimer() {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         const out = String(Math.floor(timerSeconds / 60)).padStart(2, '0') +
             ':' + String(timerSeconds % 60).padStart(2, '0');
         timerSeconds = 0;
@@ -138,15 +120,10 @@
     }
 
     function getLogs() {
-        try {
-            return JSON.parse(localStorage.getItem('premCallLogs')) || [];
-        } catch (e) { return []; }
+        try { return JSON.parse(localStorage.getItem('premCallLogs')) || []; } catch (e) { return []; }
     }
-
     function saveLogs(l) {
-        try {
-            localStorage.setItem('premCallLogs', JSON.stringify(l));
-        } catch (e) {}
+        try { localStorage.setItem('premCallLogs', JSON.stringify(l)); } catch (e) {}
     }
 
     function startLog(number, type, direction) {
@@ -163,19 +140,12 @@
         };
         persistActiveLog();
     }
-
     function persistActiveLog() {
-        try {
-            localStorage.setItem('premCallActiveLog', JSON.stringify(currentLog));
-        } catch (e) {}
+        try { localStorage.setItem('premCallActiveLog', JSON.stringify(currentLog)); } catch (e) {}
     }
-
     function clearActiveLog() {
-        try {
-            localStorage.removeItem('premCallActiveLog');
-        } catch (e) {}
+        try { localStorage.removeItem('premCallActiveLog'); } catch (e) {}
     }
-
     function logMsg(role, text) {
         if (!currentLog) return;
         currentLog.messages.push({ role, text, timestamp: Date.now() });
@@ -183,7 +153,6 @@
         persistActiveLog();
         appendTranscriptUI(role, text);
     }
-
     function endLog(duration) {
         if (!currentLog) return null;
         currentLog.ended = Date.now();
@@ -199,14 +168,11 @@
         if (global.renderCallList) global.renderCallList();
         return done;
     }
-
     function updateLogSummary(id, sum) {
         const logs = getLogs();
         const l = logs.find(x => x.id === id);
-        if (l) { l.summary = sum;
-            saveLogs(logs); }
+        if (l) { l.summary = sum; saveLogs(logs); }
     }
-
     function appendTranscriptUI(role, text) {
         const c = document.getElementById('callTranscript');
         if (!c) return;
@@ -225,7 +191,7 @@
         c.scrollTop = c.scrollHeight;
     }
 
-    // ---------- TTS with fallback ----------
+    // ---------- TTS ----------
     function unlockSpeech() {
         if (!window.speechSynthesis || speechUnlocked) return;
         try {
@@ -234,59 +200,32 @@
             p.onend = () => speechUnlocked = true;
             window.speechSynthesis.speak(p);
             setTimeout(() => speechUnlocked = true, 500);
-        } catch (e) {
-            speechUnlocked = true; // fallback
-        }
+        } catch (e) { speechUnlocked = true; }
     }
 
-    let speechQueue = Promise.resolve();
-
     function speakText(text) {
-        if (!window.speechSynthesis) {
-            // fallback: show as transcript and toast
-            showToast('🔊 ' + text);
-            return Promise.resolve();
-        }
+        if (!window.speechSynthesis) { showToast('🔊 ' + text); return Promise.resolve(); }
         const clean = String(text).replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
         if (!clean) return Promise.resolve();
 
         return new Promise((resolve) => {
             if (!speechUnlocked) {
                 unlockSpeech();
-                setTimeout(() => {
-                    speakText(clean).then(resolve);
-                }, 300);
+                setTimeout(() => { speakText(clean).then(resolve); }, 300);
                 return;
             }
-
-            // Cancel any ongoing speech
-            if (window.speechSynthesis.speaking) {
-                window.speechSynthesis.cancel();
-            }
-
+            if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(clean);
             u.lang = 'en-US';
             u.volume = speakerOn ? 1 : 0.9;
-            // Pick a voice
             const voices = window.speechSynthesis.getVoices();
             u.voice = voices.find(v => v.lang.startsWith('en') && /female|zira|samantha|google/i.test(v.name)) ||
                 voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
 
-            u.onstart = () => {
-                isSpeaking = true;
-            };
-            u.onend = () => {
-                isSpeaking = false;
-                resolve();
-            };
-            u.onerror = () => {
-                isSpeaking = false;
-                // fallback: show in transcript but no sound
-                showToast('🔊 ' + clean);
-                resolve();
-            };
+            u.onstart = () => { isSpeaking = true; };
+            u.onend = () => { isSpeaking = false; resolve(); };
+            u.onerror = () => { isSpeaking = false; showToast('🔊 ' + clean); resolve(); };
 
-            // Safety timeout (if speech gets stuck)
             const timeout = setTimeout(() => {
                 if (isSpeaking) {
                     isSpeaking = false;
@@ -295,9 +234,8 @@
                 }
             }, 10000);
 
-            try {
-                window.speechSynthesis.speak(u);
-            } catch (e) {
+            try { window.speechSynthesis.speak(u); }
+            catch (e) {
                 isSpeaking = false;
                 clearTimeout(timeout);
                 showToast('🔊 ' + clean);
@@ -321,16 +259,14 @@
         }
     }
 
-    // ---------- PeerJS ----------
+    // ---------- Media ----------
     async function getLocalStream(video = false) {
         if (localStream) {
             if (video && !localStream.getVideoTracks().length) {
                 try {
                     const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
                     videoStream.getVideoTracks().forEach(track => localStream.addTrack(track));
-                } catch (e) {
-                    showToast('Could not access camera');
-                }
+                } catch (e) { showToast('Could not access camera'); }
             }
             return localStream;
         }
@@ -364,15 +300,11 @@
         stopRingtone();
     }
 
-    // ══════════════════════════════════════════════════════════
-    //  wireCallEvents — now ALSO opens a DataConnection for
-    //  chunked file transfer (images, video, PDFs, etc.)
-    // ══════════════════════════════════════════════════════════
+    // ---------- wireCallEvents (with data channel) ----------
     function wireCallEvents(call) {
         activeCall = call;
         inCall = true;
 
-        // ─────────── Media stream ───────────
         call.on('stream', stream => {
             const ra = document.getElementById('remoteAudio');
             if (ra) {
@@ -392,40 +324,29 @@
             startLiveTranscription();
         });
 
-        // ─────────── NEW: Data channel for file transfer ───────────
-        // PeerJS media calls don't carry data packets, so open a side
-        // DataConnection to the same peer. `sandesai-file-*` packets
-        // flow through FileTransfer.handleIncoming().
         if (peer && call && call.peer && call.peer !== RAGINA_NUMBER) {
             try {
                 const conn = peer.connect(call.peer, {
                     reliable: true,
-                    serialization: 'binary'   // required for ArrayBuffer chunks
+                    serialization: 'binary'
                 });
 
                 conn.on('open', () => {
                     activeDataConn = conn;
-                    console.log('📡 File-transfer DataConnection open with', call.peer);
-
-                    // Flush any queued files (user attached before DC was ready)
+                    console.log('📡 DataConnection open with', call.peer);
                     const q = fileSendQueue.slice();
                     fileSendQueue = [];
                     if (FileTransfer) {
                         q.forEach(item => {
-                            FileTransfer
-                                .sendFileOverDataChannel(
-                                    conn, item.file, item.chatId, item.messageId, item.onProgress
-                                )
-                                .catch(err => console.warn('Queued file send failed:', err));
+                            FileTransfer.sendFileOverDataChannel(
+                                conn, item.file, item.chatId, item.messageId, item.onProgress
+                            ).catch(err => console.warn('Queued file send failed:', err));
                         });
                     }
                 });
 
                 conn.on('data', (data) => {
-                    // 1) File-transfer packet?
                     if (FileTransfer && FileTransfer.handleIncoming(data)) return;
-
-                    // 2) Optional: plain chat text over data channel
                     if (data && data.type === 'chat-text') {
                         console.log('💬 Data-channel chat:', data.text);
                     }
@@ -445,7 +366,6 @@
             }
         }
 
-        // ─────────── Close / error ───────────
         call.on('close', () => endPeerCall());
         call.on('error', () => endPeerCall());
     }
@@ -479,13 +399,14 @@
 
     function endPeerCall() {
         if (activeCall) { try { activeCall.close(); } catch (e) {} }
-
-        // ── Close the file-transfer DataConnection too ──
-        if (activeDataConn) {
-            try { activeDataConn.close(); } catch (e) {}
-            activeDataConn = null;
-        }
+        if (activeDataConn) { try { activeDataConn.close(); } catch (e) {} }
+        activeDataConn = null;
         fileSendQueue = [];
+
+        if (currentCallSignalId && global.SandesaiSignaling) {
+            global.SandesaiSignaling.update(currentCallSignalId, 'ended');
+            currentCallSignalId = null;
+        }
 
         if (!inCall) return;
         activeCall = null;
@@ -516,9 +437,7 @@
         } else if (number) {
             global.addHistoryEntry(number, 'outgoing', dur);
         }
-        if (recording) {
-            toggleRecording();
-        }
+        if (recording) toggleRecording();
         showToast('Call ended');
     }
 
@@ -526,47 +445,51 @@
         if (!peer) return;
         const dot = document.getElementById('headerStatusDot');
         peer.on('open', () => {
-            if (dot) {
-                dot.className = 'status-dot online';
-                dot.title = 'Online';
-            }
+            if (dot) { dot.className = 'status-dot online'; dot.title = 'Online'; }
         });
         peer.on('disconnected', () => {
-            if (dot) {
-                dot.className = 'status-dot offline';
-                dot.title = 'Offline';
-            }
+            if (dot) { dot.className = 'status-dot offline'; dot.title = 'Offline'; }
             setTimeout(() => {
                 if (peer && !peer.destroyed) try { peer.reconnect(); } catch (e) {}
             }, 3000);
         });
         peer.on('error', err => {
-            showToast('Network: ' + err.type);
+            console.warn('PeerJS error:', err.type, err.message);
+            if (err.type === 'unavailable-id') {
+                showToast('Number in use — retrying…');
+                try { peer.destroy(); } catch (e) {}
+                setTimeout(() => {
+                    try {
+                        peer = new global.Peer(myNumber, { debug: 0 });
+                        attachPeerHandlers();
+                    } catch (e) { console.warn('Peer retry failed', e); }
+                }, 2000);
+            } else if (err.type === 'network' || err.type === 'server-error') {
+                showToast('Network hiccup — reconnecting');
+                setTimeout(() => {
+                    if (peer && !peer.destroyed) try { peer.reconnect(); } catch (e) {}
+                }, 3000);
+            } else {
+                showToast('Call error: ' + err.type);
+            }
         });
         peer.on('call', call => {
             if (inCall || raginaCallActive) { call.close(); return; }
             incomingCall = call;
             showIncomingOverlay(call.peer);
         });
-
-        // ── Also accept incoming DataConnections from peers who aren't on a call ──
-        // (so files can be sent even before/after a call)
         peer.on('connection', conn => {
             conn.on('open', () => {
                 if (!activeDataConn) {
                     activeDataConn = conn;
-                    console.log('📡 Incoming DataConnection accepted from', conn.peer);
+                    console.log('📡 Incoming DataConnection from', conn.peer);
                 }
             });
             conn.on('data', (data) => {
                 if (FileTransfer && FileTransfer.handleIncoming(data)) return;
             });
-            conn.on('close', () => {
-                if (activeDataConn === conn) activeDataConn = null;
-            });
-            conn.on('error', () => {
-                if (activeDataConn === conn) activeDataConn = null;
-            });
+            conn.on('close', () => { if (activeDataConn === conn) activeDataConn = null; });
+            conn.on('error', () => { if (activeDataConn === conn) activeDataConn = null; });
         });
     }
 
@@ -579,9 +502,7 @@
         rec.interimResults = false;
         rec.lang = 'en-US';
         liveRecognition = rec;
-        rec.onresult = e => {
-            logMsg('user', e.results[0][0].transcript);
-        };
+        rec.onresult = e => { logMsg('user', e.results[0][0].transcript); };
         rec.onend = () => {
             liveRecognition = null;
             if (inCall) setTimeout(startLiveTranscription, 700);
@@ -606,7 +527,6 @@
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) { showToast('Voice calls not supported in this browser.'); return; }
         unlockSpeech();
-        // Get voices
         if (window.speechSynthesis) {
             ttsVoices = window.speechSynthesis.getVoices();
             window.speechSynthesis.onvoiceschanged = () => ttsVoices = window.speechSynthesis.getVoices();
@@ -640,9 +560,7 @@
             if (wrap2) wrap2.classList.remove('ring-anim');
             const greeting = "Hello! I'm RAGina. What is your name?";
             logMsg('ragina', greeting);
-            // Speak and wait for it to finish before listening
             await speakText(greeting);
-            // Start listening after speech ends
             listenToRAGina();
         }, 1200);
     }
@@ -682,7 +600,6 @@
                 const r = 'Nice to meet you, ' + userName + '. What can I help you with today?';
                 logMsg('ragina', r);
                 await speakText(r);
-                // After speaking, listen again
                 setTimeout(listenToRAGina, 800);
             } else {
                 document.getElementById('callSubstatus').textContent = 'RAGina is thinking…';
@@ -742,31 +659,18 @@
             el.style.pointerEvents = '';
         });
         document.querySelector('.fab-button')?.classList.remove('hidden');
-        if (log) {
-            global.addHistoryEntry(log.number, log.direction, dur, log.id);
-        }
+        if (log) global.addHistoryEntry(log.number, log.direction, dur, log.id);
         showToast('Call with RAGina ended');
     }
 
     // ---------- Recording & Video ----------
     function toggleRecording() {
-        if (!inCall && !raginaCallActive) {
-            showToast('No active call to record');
-            return false;
-        }
+        if (!inCall && !raginaCallActive) { showToast('No active call to record'); return false; }
         recording = !recording;
         if (recording) {
-            if (!localStream) {
-                showToast('No local stream available');
-                recording = false;
-                return false;
-            }
+            if (!localStream) { showToast('No local stream available'); recording = false; return false; }
             const audioTracks = localStream.getAudioTracks();
-            if (!audioTracks.length) {
-                showToast('No audio to record');
-                recording = false;
-                return false;
-            }
+            if (!audioTracks.length) { showToast('No audio to record'); recording = false; return false; }
             const streamToRecord = new MediaStream(audioTracks);
             mediaRecorder = new MediaRecorder(streamToRecord);
             recordedChunks = [];
@@ -799,10 +703,7 @@
     }
 
     function videoToggle() {
-        if (!inCall && !raginaCallActive) {
-            showToast('No active call');
-            return false;
-        }
+        if (!inCall && !raginaCallActive) { showToast('No active call'); return false; }
         if (!localStream) return false;
         const videoTracks = localStream.getVideoTracks();
         if (videoTracks.length) {
@@ -814,9 +715,7 @@
                 .then(videoStream => {
                     videoStream.getVideoTracks().forEach(track => {
                         localStream.addTrack(track);
-                        if (activeCall) {
-                            activeCall.addStream(localStream);
-                        }
+                        if (activeCall) activeCall.addStream(localStream);
                     });
                     videoEnabled = true;
                     const localVideo = document.getElementById('localVideo');
@@ -848,7 +747,7 @@
                     peer = new global.Peer(num, { debug: 0 });
                     attachPeerHandlers();
                     const dot = document.getElementById('headerStatusDot');
-                    if (dot) dot.className = 'status-connecting';
+                    if (dot) dot.className = 'status-dot connecting';
                 } catch (e) {
                     console.warn('Peer init failed:', e);
                 }
@@ -859,6 +758,14 @@
             if (target === RAGINA_NUMBER) { startRAGinaCall(); return; }
             if (!peer) { showToast('Register to call real numbers.'); return; }
             if (!/^\d{10}$/.test(target)) { showToast('Enter exactly 10 digits'); return; }
+
+            // Firestore signal (belt & suspenders — makes the receiver ring even if PeerJS is slow)
+            if (global.SandesaiSignaling) {
+                global.SandesaiSignaling.send(target).then(id => {
+                    currentCallSignalId = id;
+                }).catch(() => {});
+            }
+
             getLocalStream(video).then(stream => {
                 if (!stream) return;
                 const call = peer.call(target, stream);
@@ -882,17 +789,25 @@
                 call.answer(stream);
                 showCallScreenPeer(call.peer, false, hasVideo);
                 wireCallEvents(call);
+                if (global.SandesaiSignaling && currentCallSignalId) {
+                    global.SandesaiSignaling.update(currentCallSignalId, 'answered');
+                    currentCallSignalId = null;
+                }
             } catch (e) { showToast('Microphone/camera denied.'); }
         },
 
         reject: function() {
             if (incomingCall) {
                 const id = incomingCall.peer;
-                incomingCall.close();
+                try { incomingCall.close(); } catch (e) {}
                 incomingCall = null;
                 global.addHistoryEntry(id, 'missed', '—');
             }
             hideIncomingOverlay();
+            if (global.SandesaiSignaling && currentCallSignalId) {
+                global.SandesaiSignaling.update(currentCallSignalId, 'rejected');
+                currentCallSignalId = null;
+            }
         },
 
         hangup: function() {
@@ -921,20 +836,34 @@
             return speakerOn;
         },
 
-        videoToggle: function() {
-            return videoToggle();
-        },
-
-        toggleRecording: function() {
-            return toggleRecording();
-        },
-
+        videoToggle: function() { return videoToggle(); },
+        toggleRecording: function() { return toggleRecording(); },
         isInCall: () => inCall || raginaCallActive,
 
-        // ─── NEW: send a file (saves locally + sends over DataConnection) ───
+        // Firestore signaling → show incoming overlay even if PeerJS call event is late
+        showIncomingFromSignal: function(fromNumber, signalId) {
+            currentCallSignalId = signalId;
+            const overlay = document.getElementById('incomingOverlay');
+            if (overlay && overlay.classList.contains('active')) return;
+            if (inCall || raginaCallActive) return;
+            // Placeholder so answer() can proceed when PeerJS's call event arrives
+            if (!incomingCall) {
+                incomingCall = { peer: fromNumber, metadata: {}, close: function() {} };
+            }
+            showIncomingOverlay(fromNumber);
+        },
+
+        dismissIncomingFromSignal: function(fromNumber) {
+            if (incomingCall && incomingCall.peer === fromNumber) {
+                try { incomingCall.close && incomingCall.close(); } catch (e) {}
+                incomingCall = null;
+                hideIncomingOverlay();
+            }
+        },
+
+        // File transfer
         sendFile: function(file, chatId, onProgress) {
             if (!file) return Promise.reject(new Error('No file'));
-
             const targetChat = chatId
                 || (typeof global.activeChatPeer !== 'undefined' && global.activeChatPeer)
                 || (activeCall && activeCall.peer)
@@ -942,13 +871,11 @@
 
             const messageId = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
-            // Always save locally first so the sender can preview
             const localSave = global.MediaStore
                 ? global.MediaStore.saveMediaFile(file, targetChat, messageId)
                     .catch(err => { console.warn('Local save failed:', err); return null; })
                 : Promise.resolve(null);
 
-            // If DC is not ready but we're on a call, queue it
             if (!activeDataConn || !activeDataConn.open) {
                 if (activeCall && activeCall.peer) {
                     fileSendQueue.push({ file, chatId: targetChat, messageId, onProgress });
@@ -977,9 +904,7 @@
                 try {
                     const conn = peer.connect(number);
                     let done = false;
-                    const finish = v => { if (!done) { done = true;
-                            resolve(v);
-                            try { conn.close(); } catch (e) {} } };
+                    const finish = v => { if (!done) { done = true; resolve(v); try { conn.close(); } catch (e) {} } };
                     conn.on('open', () => finish(true));
                     conn.on('error', () => finish(false));
                     setTimeout(() => finish(false), 3000);
@@ -996,19 +921,21 @@
             const stamp = new Date(log.started).toISOString().replace(/[:.]/g, '-');
             const buildLogText = (l) => {
                 let out = 'Sandesai Transcript\nNumber: ' + l.number + '\nType: ' + (l.type === 'ragina' ? 'RAGina AI Call' : 'Voice Call') +
-                    '\nDirection: ' + l.direction + '\nStarted: ' + new Date(l.started).toLocaleString() + '\nDuration: ' + (l
-                        .duration || '—') + '\n';
+                    '\nDirection: ' + l.direction + '\nStarted: ' + new Date(l.started).toLocaleString() + '\nDuration: ' + (l.duration || '—') + '\n';
                 if (l.summary) out += 'AI Recap: ' + l.summary + '\n';
                 out += '\n' + (l.messages.length ? l.messages.map(m => '[' + new Date(m.timestamp).toLocaleTimeString() +
-                    '] ' + (m.role === 'user' ? 'You' : (l.type === 'ragina' ? 'RAGina' : 'Live')) + ': ' + m.text).join(
-                    '\n') : '(no transcript recorded)');
+                    '] ' + (m.role === 'user' ? 'You' : (l.type === 'ragina' ? 'RAGina' : 'Live')) + ': ' + m.text).join('\n')
+                    : '(no transcript recorded)');
                 return out;
             };
-            const buildLogJSON = (l) => {
-                return { number: l.number, type: l.type, direction: l.direction, started: new Date(l.started).toISOString(),
-                    ended: l.ended ? new Date(l.ended).toISOString() : null, duration: l.duration || null,
-                    aiSummary: l.summary || null, messages: l.messages };
-            };
+            const buildLogJSON = (l) => ({
+                number: l.number, type: l.type, direction: l.direction,
+                started: new Date(l.started).toISOString(),
+                ended: l.ended ? new Date(l.ended).toISOString() : null,
+                duration: l.duration || null,
+                aiSummary: l.summary || null,
+                messages: l.messages
+            });
             if (format === 'json') {
                 content = JSON.stringify(buildLogJSON(log), null, 2);
                 filename = 'sandesai-' + stamp + '.json';
@@ -1030,12 +957,17 @@
         },
 
         logText: function(log) {
-            return buildLogText(log);
+            if (!log) return '';
+            let out = 'Sandesai Transcript\nNumber: ' + log.number + '\nType: ' + (log.type === 'ragina' ? 'RAGina AI Call' : 'Voice Call') +
+                '\nDirection: ' + log.direction + '\nStarted: ' + new Date(log.started).toLocaleString() + '\nDuration: ' + (log.duration || '—') + '\n';
+            if (log.summary) out += 'AI Recap: ' + log.summary + '\n';
+            out += '\n' + (log.messages.length ? log.messages.map(m => '[' + new Date(m.timestamp).toLocaleTimeString() +
+                '] ' + (m.role === 'user' ? 'You' : (log.type === 'ragina' ? 'RAGina' : 'Live')) + ': ' + m.text).join('\n')
+                : '(no transcript recorded)');
+            return out;
         },
 
-        updateLogSummary: function(id, summary) {
-            updateLogSummary(id, summary);
-        },
+        updateLogSummary: function(id, summary) { updateLogSummary(id, summary); },
 
         unlockSpeech,
         playDtmf,
@@ -1088,4 +1020,4 @@
         if (!lastLog) lastLog = getLogs().find(l => l.messages && l.messages.length) || null;
     })();
 
-})(window); 
+})(window);
