@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Sandesai · AI Messenger</title>
+    <title>Sandes`ai · AI Messenger</title>
     <link rel="icon" type="image/png" href="sandesai-logo.png" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 
-    <!-- Add .desktop class ONLY on real desktops (phone "Desktop Site" mode is excluded) -->
+    <!-- Add .desktop class ONLY on real desktops -->
     <script>
         (function () {
             var realDesktop =
@@ -20,7 +20,7 @@
         })();
     </script>
 
-    <link rel="stylesheet" href="style.css?v=8" />
+    <link rel="stylesheet" href="style.css?v=12" />
 
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
@@ -32,16 +32,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 
-    <!-- RAGina Pro (in-browser RAG + voice) -->
+    <!-- RAGina Pro -->
     <script src="https://cdn.jsdelivr.net/gh/suryasticsai/RAGina@main/ragina-t4.js"></script>
 
-    <!-- AlaSQL – in-browser SQL (used for AI conversations, media metadata) -->
+    <!-- AlaSQL -->
     <script src="https://cdn.jsdelivr.net/npm/alasql@4.4.0/dist/alasql.min.js"></script>
 </head>
 <body>
 
     <!-- ===== PARALLAX BACKGROUND ===== -->
-    <div class="parallax-scene" data-parallax="scroll" data-relative-input="true"> 
+    <div class="parallax-scene" data-parallax="scroll" data-relative-input="true">
         <div class="bg-layer layer-1" data-depth="0.10"></div>
         <div class="bg-layer layer-2" data-depth="0.20"></div>
         <div class="bg-layer layer-3" data-depth="0.30"></div>
@@ -56,7 +56,7 @@
             <header class="list-header">
                 <div class="logo" data-depth="0.15">
                     <img src="sandesai-logo.png" alt="Sandesai Logo" class="logo-img" />
-                    <span>Sandesai</span>
+                    <span>Sandes`ai</span>
                     <span class="status-badge" id="statusBadge" style="display:none;">
                         <span class="status-dot-badge" id="statusDot"></span>
                         <span id="statusText">Offline</span>
@@ -136,6 +136,14 @@
                         <div class="setting-item registration-link">
                             <span><i class="fas fa-user-plus"></i> Registration</span>
                             <button class="reg-btn" id="openRegForm"><i class="fas fa-arrow-right"></i></button>
+                        </div>
+
+                        <!-- 🆕 Refresh connection button -->
+                        <div class="setting-item">
+                            <span><i class="fas fa-sync-alt"></i> Refresh connection</span>
+                            <button class="reg-btn" id="refreshConnectionBtn" title="Reconnect to network">
+                                <i class="fas fa-rotate-right"></i>
+                            </button>
                         </div>
 
                         <div class="setting-item">
@@ -322,7 +330,7 @@
             </div>
         </div>
 
-        <!-- ===== FAB (phone) ===== -->
+        <!-- ===== FAB ===== -->
         <div class="fab-button" id="fabButton">
             <i class="fas fa-phone"></i>
         </div>
@@ -551,11 +559,9 @@
 
     </div> <!-- end .app -->
 
-    <!-- ===== EXISTING APP SCRIPTS (unchanged) ===== -->
-    <script src="script.js"></script>
-    <script src="app.js"></script>
+    <script src="script.js?v=12"></script>
+    <script src="app.js?v=12"></script>
 
-    <!-- ===== NEW MODULES (self-initializing) ===== -->
     <script src="js/mediaStorage.js"></script>
     <script src="js/fileTransfer.js"></script>
     <script src="js/aiAgent.js"></script>
