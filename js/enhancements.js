@@ -1,7 +1,9 @@
 // ================================================================
 // js/enhancements.js
 // Adds NEW features on top of script.js without touching it:
-//   • Invite links (share + deep link + auto-register)
+//   • Invite links (long URL — no external APIs)
+//   • Share invite to any app (no duplicate URL)
+//   • Deep link handler for ?join=TOKEN
 //   • Refresh connection
 //   • Call log sync (Firestore <-> local)
 //   • Profile lookup (name + username)
@@ -58,7 +60,7 @@
     window.buildInviteURL = buildInviteURL;
 
     // ────────────────────────────────────────────────────────────
-    // 2. SHARE INVITE (any app)
+    // 2. SHARE INVITE — any app, no duplicate URL
     // ────────────────────────────────────────────────────────────
     async function shareInviteForPeer(peer) {
         if (!peer) { window.showToast && showToast('No contact selected'); return; }
@@ -68,18 +70,22 @@
         const senderName = userData.name || 'Someone';
 
         const token = createInviteToken({
-            from: me, to: peer, chat: peer, name: senderName,
+            from: me,
+            to: peer,
+            chat: peer,
+            name: senderName,
         });
         const url = buildInviteURL(token);
-        const text =
-            `👋 Hi! ${senderName} is on Sandesai and wants to chat with you.\n\n` +
-            `Tap this link to join and open the chat instantly:\n${url}`;
 
-        // Native share sheet
+        // IMPORTANT: only `text`, no `url:` — the URL is inside `text`
+        // Passing both causes the duplicate the user was seeing.
+        const text =
+            `👋 ${senderName} invited you to Sandesai.\n\n` +
+            `Tap to open the chat:\n${url}`;
+
         if (navigator.share) {
             try {
-                await navigator.share({ title: 'Join me on Sandesai', text, url });
-                console.log('✅ Shared via native share sheet');
+                await navigator.share({ title: 'Sandesai Invite', text });
                 return;
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
@@ -93,7 +99,7 @@
             ? `sms:${peer}?body=${encodeURIComponent(text)}`
             : `sms:${peer}&body=${encodeURIComponent(text)}`;
 
-        // Clipboard fallback
+        // Fallback: clipboard
         if (navigator.clipboard) {
             try {
                 await navigator.clipboard.writeText(text);
@@ -111,13 +117,18 @@
         const me = localStorage.getItem('premCallNumber') || '';
         const senderName = userData.name || 'Someone';
 
-        const token = createInviteToken({ from: me, to: '', chat: me, name: senderName });
+        const token = createInviteToken({
+            from: me,
+            to: '',
+            chat: me,
+            name: senderName,
+        });
         const url = buildInviteURL(token);
         const text = `👋 Join me on Sandesai — a messenger with AI superpowers!\n\n${url}`;
 
         if (navigator.share) {
             try {
-                await navigator.share({ title: 'Join Sandesai', text, url });
+                await navigator.share({ title: 'Join Sandesai', text });
                 return;
             } catch (e) { if (e.name === 'AbortError') return; }
         }
@@ -218,15 +229,12 @@
 
         window.showToast && showToast('✅ Welcome, ' + name + '!');
 
-        // Init PeerJS
         if (window.PremCall) window.PremCall.init(phone);
 
-        // Init Firebase if needed
         if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') {
             window.initFirebaseMessaging();
         }
 
-        // Publish profile + start sync
         setTimeout(() => {
             if (window.db && phone) {
                 window.db.collection('profiles').doc(phone).set({
@@ -239,7 +247,6 @@
 
         document.getElementById('inviteWelcomeOverlay')?.remove();
 
-        // Update header / badge if helpers exist
         if (typeof window.updateStatusBadge === 'function') window.updateStatusBadge(userData);
         if (typeof window.renderProfileView === 'function') window.renderProfileView();
         const mn = document.getElementById('myNumberDisplay');
@@ -247,7 +254,6 @@
         const dot = document.getElementById('headerStatusDot');
         if (dot) dot.className = 'status-dot connecting';
 
-        // Jump to the chat after a short delay
         setTimeout(() => {
             if (typeof window.switchTab === 'function') window.switchTab('chat');
             if (typeof window.openChat === 'function') window.openChat(payload.chat || payload.from);
@@ -289,7 +295,7 @@
     window.handleInviteFromURL = handleInviteFromURL;
 
     // ────────────────────────────────────────────────────────────
-    // 4. REFRESH CONNECTION (only if not already defined)
+    // 4. REFRESH CONNECTION
     // ────────────────────────────────────────────────────────────
     if (typeof window.refreshConnection !== 'function') {
         window.refreshConnection = async function () {
@@ -328,7 +334,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 5. CALL LOG SYNC (only if not already defined)
+    // 5. CALL LOG SYNC
     // ────────────────────────────────────────────────────────────
     if (typeof window.initCallLogSync !== 'function') {
         window.callLogsUnsub = null;
@@ -356,7 +362,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. PROFILE LOOKUP (only if not already defined)
+    // 6. PROFILE LOOKUP
     // ────────────────────────────────────────────────────────────
     if (typeof window.fetchUserProfile !== 'function') {
         window.userProfileCache = window.userProfileCache || {};
@@ -398,13 +404,11 @@
 
     // ────────────────────────────────────────────────────────────
     // 7. INJECT "Invite" BUTTON INTO CONTACT PROFILE
-    //     Uses MutationObserver so we don't touch script.js
     // ────────────────────────────────────────────────────────────
     function injectInviteButton() {
         const profileOverlay = document.getElementById('contactProfileOverlay');
         if (!profileOverlay || profileOverlay.style.display === 'none') return;
 
-        // Skip if already injected
         if (document.getElementById('contactProfileInvite')) return;
 
         const msgBtn = document.getElementById('contactProfileMessage');
@@ -415,8 +419,6 @@
         inviteBtn.style.cssText = 'padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(110,231,255,0.2);background:rgba(110,231,255,0.08);color:#6ee7ff;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;';
         inviteBtn.innerHTML = '<i class="fas fa-share-nodes"></i> Invite';
         inviteBtn.addEventListener('click', () => {
-            // Pull current peer from script.js's variable if accessible,
-            // else fall back to reading the phone in the profile DOM.
             let peer = window.currentProfilePeer;
             if (!peer) {
                 const phoneEl = document.getElementById('contactProfilePhone');
@@ -431,7 +433,6 @@
         msgBtn.parentNode.appendChild(inviteBtn);
     }
 
-    // Watch for the profile overlay becoming visible
     const observer = new MutationObserver(() => {
         const overlay = document.getElementById('contactProfileOverlay');
         if (overlay && overlay.style.display === 'flex') injectInviteButton();
@@ -441,17 +442,17 @@
         attributeFilter: ['style'],
         subtree: true,
     });
-    // Also try right now in case the overlay is already open
     setTimeout(injectInviteButton, 500);
 
     // ────────────────────────────────────────────────────────────
-    // 8. INJECT "Invite friends" + "Refresh" BUTTONS IN SETTINGS
+    // 8. INJECT "Invite friends" + "Refresh" INTO SETTINGS
     // ────────────────────────────────────────────────────────────
     function injectSettingsButtons() {
         const settingsSection = document.querySelector('.settings-section');
         if (!settingsSection) return;
 
-        // Invite friends
+        const logoutBtn = settingsSection.querySelector('.logout-btn');
+
         if (!document.getElementById('inviteFriendsBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -462,10 +463,9 @@
                 </button>
             `;
             row.querySelector('#inviteFriendsBtn').addEventListener('click', shareInviteOpen);
-            settingsSection.insertBefore(row, settingsSection.querySelector('.logout-btn'));
+            settingsSection.insertBefore(row, logoutBtn);
         }
 
-        // Refresh connection (only if not already in HTML)
         if (!document.getElementById('refreshConnectionBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -476,11 +476,10 @@
                 </button>
             `;
             row.querySelector('#refreshConnectionBtn').addEventListener('click', window.refreshConnection);
-            settingsSection.insertBefore(row, settingsSection.querySelector('.logout-btn'));
+            settingsSection.insertBefore(row, logoutBtn);
         }
     }
 
-    // Run once at startup + on tab switch to Me
     setTimeout(injectSettingsButtons, 600);
 
     const origSwitchTab = window.switchTab;
