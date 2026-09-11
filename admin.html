@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sandesai · Admin</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #07050e;
+            color: #eef0f5;
+            min-height: 100vh;
+            padding: 24px;
+            background:
+                radial-gradient(circle at 15% 10%, rgba(139,92,246,0.15), transparent 55%),
+                radial-gradient(circle at 85% 90%, rgba(110,231,255,0.10), transparent 55%),
+                #07050e;
+        }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+        }
+        .brand {
+            display: flex; align-items: center; gap: 12px;
+            font-weight: 700; font-size: 1.4rem;
+        }
+        .brand img { width: 44px; height: 44px; border-radius: 50%;
+                     border: 2px solid rgba(139,92,246,0.3); }
+        .brand span {
+            background: linear-gradient(135deg,#a78bfa,#6ee7ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .stats { display: flex; gap: 12px; flex-wrap: wrap; }
+        .stat {
+            background: rgba(18,16,36,0.7);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 14px;
+            padding: 12px 20px;
+            min-width: 130px;
+        }
+        .stat-value { font-size: 1.6rem; font-weight: 700; }
+        .stat-label { font-size: 0.72rem; color: #7a89a8;
+                      text-transform: uppercase; letter-spacing: 0.05em;
+                      margin-top: 4px; }
+        .toolbar {
+            display: flex; gap: 10px; margin-bottom: 18px;
+            flex-wrap: wrap; align-items: center;
+        }
+        .toolbar input {
+            flex: 1; min-width: 200px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: #eef0f5;
+            font-size: 14px;
+            outline: none;
+            font-family: inherit;
+        }
+        .toolbar input:focus { border-color: rgba(139,92,246,0.5); }
+        .btn {
+            padding: 12px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(139,92,246,0.25);
+            background: rgba(139,92,246,0.12);
+            color: #a78bfa;
+            font-weight: 600;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.2s, transform 0.1s;
+            white-space: nowrap;
+        }
+        .btn:hover { background: rgba(139,92,246,0.22); }
+        .btn:active { transform: scale(0.97); }
+        .btn-primary {
+            background: linear-gradient(135deg,#7c3aed,#6d28d9);
+            color: #fff;
+            border: none;
+        }
+        .table-wrap {
+            background: rgba(18,16,36,0.7);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        thead th {
+            text-align: left;
+            padding: 14px 16px;
+            background: rgba(139,92,246,0.08);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #a78bfa;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        tbody td {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: middle;
+        }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+        tbody tr:last-child td { border-bottom: none; }
+        .avatar {
+            width: 36px; height: 36px; border-radius: 10px;
+            background: linear-gradient(135deg,#8b5cf6,#6d28d9);
+            display: inline-flex; align-items: center; justify-content: center;
+            font-weight: 700; color: #fff; font-size: 14px;
+            margin-right: 10px; vertical-align: middle;
+        }
+        .name-cell { display: flex; align-items: center; }
+        .name-cell .details { display: flex; flex-direction: column; }
+        .name-cell .name { font-weight: 600; color: #f0f2f7; }
+        .name-cell .username { font-size: 0.75rem; color: #7a89a8; margin-top: 1px; }
+        .phone { font-family: 'Monaco', 'Menlo', monospace;
+                 color: #c4b5fd; font-weight: 500; }
+        .time { color: #7a89a8; font-size: 0.82rem; }
+        .empty {
+            text-align: center; padding: 60px 20px; color: #5a6885;
+        }
+        .empty i { font-size: 3rem; opacity: 0.25;
+                   display: block; margin-bottom: 12px; }
+        .loader {
+            text-align: center; padding: 60px 20px; color: #a78bfa;
+        }
+        .loader i { font-size: 2rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .badge-new {
+            background: rgba(47,217,146,0.15);
+            color: #2fd992;
+            font-size: 0.65rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .gate {
+            max-width: 380px; margin: 80px auto;
+            background: rgba(18,16,36,0.9);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 24px;
+            padding: 32px 28px;
+            text-align: center;
+        }
+        .gate h2 { margin-bottom: 8px; font-size: 1.2rem; }
+        .gate p { color: #7a89a8; font-size: 0.85rem; margin-bottom: 20px; }
+        .gate input {
+            width: 100%; padding: 13px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: #eef0f5;
+            font-size: 16px;
+            outline: none;
+            font-family: inherit;
+            margin-bottom: 12px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        .gate input:focus { border-color: rgba(139,92,246,0.5); }
+        .gate button {
+            width: 100%; padding: 13px;
+            border-radius: 12px; border: none;
+            background: linear-gradient(135deg,#7c3aed,#6d28d9);
+            color: #fff; font-weight: 700; font-size: 0.95rem;
+            cursor: pointer; font-family: inherit;
+        }
+        .gate .error { color: #ef4444; font-size: 0.8rem;
+                       margin-top: 10px; min-height: 1.2em; }
+        .footer { text-align: center; margin-top: 24px;
+                  font-size: 0.72rem; color: #3a4868; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- Password gate -->
+    <div id="gate" class="gate">
+        <div style="font-size: 2.5rem; margin-bottom: 12px;">🔐</div>
+        <h2>Admin Access</h2>
+        <p>Enter the admin passcode to view registrations</p>
+        <input id="gatePass" type="password" placeholder="••••••••" autofocus />
+        <button id="gateSubmit">Unlock</button>
+        <div class="error" id="gateError"></div>
+    </div>
+
+    <!-- Dashboard (hidden until unlocked) -->
+    <div id="dashboard" style="display:none;">
+
+        <div class="header">
+            <div class="brand">
+                <img src="sandesai-logo.png" alt="Sandesai" onerror="this.style.display='none'" />
+                <span>Sandesai · Admin</span>
+            </div>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="statTotal">—</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="statToday">—</div>
+                    <div class="stat-label">Joined Today</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="statWeek">—</div>
+                    <div class="stat-label">Last 7 Days</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <input id="searchInput" type="text" placeholder="Search by name, username, or phone..." />
+            <button class="btn" id="refreshBtn"><i class="fas fa-rotate-right"></i> Refresh</button>
+            <button class="btn btn-primary" id="exportBtn"><i class="fas fa-download"></i> Export CSV</button>
+        </div>
+
+        <div class="table-wrap">
+            <div id="loader" class="loader">
+                <i class="fas fa-circle-notch"></i>
+                <div style="margin-top: 12px;">Loading users...</div>
+            </div>
+            <table id="usersTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Phone</th>
+                        <th>Username</th>
+                        <th>Registered</th>
+                    </tr>
+                </thead>
+                <tbody id="usersBody"></tbody>
+            </table>
+            <div id="emptyState" class="empty" style="display:none;">
+                <i class="fas fa-inbox"></i>
+                <div>No registered users yet</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            Last updated: <span id="lastUpdated">—</span>
+        </div>
+    </div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// 🔐 CHANGE THIS PASSWORD before going live
+// ════════════════════════════════════════════════════════════════
+const ADMIN_PASSWORD = 'sandesai-admin-2026';
+
+// Firebase config (same as your app)
+const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
+    authDomain: "premcall-msg.firebaseapp.com",
+    projectId: "premcall-msg",
+    storageBucket: "premcall-msg.firebasestorage.app",
+    messagingSenderId: "50980568455",
+    appId: "1:50980568455:web:723fb612e7df28169d6722"
+};
+
+let allUsers = [];
+let db = null;
+
+// ─── Gate ───
+const gateEl = document.getElementById('gate');
+const dashEl = document.getElementById('dashboard');
+const gatePass = document.getElementById('gatePass');
+const gateSubmit = document.getElementById('gateSubmit');
+const gateError = document.getElementById('gateError');
+
+// Remember unlock for the session
+if (sessionStorage.getItem('sandesai_admin_unlocked') === '1') {
+    unlock();
+}
+
+gateSubmit.addEventListener('click', tryUnlock);
+gatePass.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+
+function tryUnlock() {
+    if (gatePass.value === ADMIN_PASSWORD) {
+        sessionStorage.setItem('sandesai_admin_unlocked', '1');
+        unlock();
+    } else {
+        gateError.textContent = 'Incorrect passcode';
+        gatePass.value = '';
+        gatePass.focus();
+    }
+}
+
+function unlock() {
+    gateEl.style.display = 'none';
+    dashEl.style.display = 'block';
+    initFirebase();
+}
+
+// ─── Firebase ───
+function initFirebase() {
+    try {
+        if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+        db = firebase.firestore();
+        loadUsers();
+    } catch (e) {
+        gateError.textContent = 'Firebase init failed: ' + e.message;
+    }
+}
+
+// ─── Load users from Firestore ───
+async function loadUsers() {
+    document.getElementById('loader').style.display = 'block';
+    document.getElementById('usersTable').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+
+    try {
+        const snap = await db.collection('profiles').get();
+
+        allUsers = snap.docs.map(doc => {
+            const d = doc.data();
+            return {
+                phone: d.phone || doc.id,
+                name: d.name || '—',
+                username: d.username || '',
+                updatedAt: d.updatedAt || 0,
+            };
+        });
+
+        // Newest first
+        allUsers.sort((a, b) => b.updatedAt - a.updatedAt);
+
+        renderStats();
+        renderUsers(allUsers);
+
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('lastUpdated').textContent =
+            new Date().toLocaleTimeString();
+    } catch (e) {
+        console.error('Load failed:', e);
+        document.getElementById('loader').innerHTML =
+            '<div style="color:#ef4444;padding:20px;">' +
+            'Error: ' + e.message +
+            '<br><br><span style="font-size:0.8rem;color:#7a89a8;">' +
+            'Make sure Firestore rules allow reading the <code>profiles</code> collection.' +
+            '</span></div>';
+    }
+}
+
+function renderStats() {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    document.getElementById('statTotal').textContent = allUsers.length;
+    document.getElementById('statToday').textContent =
+        allUsers.filter(u => u.updatedAt > now - dayMs).length;
+    document.getElementById('statWeek').textContent =
+        allUsers.filter(u => u.updatedAt > now - 7 * dayMs).length;
+}
+
+function renderUsers(list) {
+    const tbody = document.getElementById('usersBody');
+    const table = document.getElementById('usersTable');
+    const empty = document.getElementById('emptyState');
+
+    if (!list.length) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+
+    table.style.display = 'table';
+    empty.style.display = 'none';
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    tbody.innerHTML = list.map(u => {
+        const initial = (u.name || '?').charAt(0).toUpperCase();
+        const isNew = u.updatedAt > now - dayMs;
+        const timeStr = u.updatedAt
+            ? new Date(u.updatedAt).toLocaleString([], {
+                month: 'short', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+              })
+            : '—';
+
+        return `
+            <tr>
+                <td>
+                    <div class="name-cell">
+                        <div class="avatar">${escapeHtml(initial)}</div>
+                        <div class="details">
+                            <div class="name">
+                                ${escapeHtml(u.name)}
+                                ${isNew ? '<span class="badge-new" style="margin-left:8px;">New</span>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                </td>
+                <td><span class="phone">+91 ${escapeHtml(u.phone)}</span></td>
+                <td>${u.username ? '@' + escapeHtml(u.username) : '<span style="color:#5a6885;">—</span>'}</td>
+                <td><span class="time">${timeStr}</span></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// ─── Search ───
+document.getElementById('searchInput').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    if (!q) { renderUsers(allUsers); return; }
+    const filtered = allUsers.filter(u =>
+        (u.name || '').toLowerCase().includes(q) ||
+        (u.username || '').toLowerCase().includes(q) ||
+        (u.phone || '').includes(q)
+    );
+    renderUsers(filtered);
+});
+
+// ─── Refresh ───
+document.getElementById('refreshBtn').addEventListener('click', () => {
+    loadUsers();
+});
+
+// ─── Export CSV ───
+document.getElementById('exportBtn').addEventListener('click', () => {
+    if (!allUsers.length) { alert('No users to export'); return; }
+
+    const header = ['Name', 'Username', 'Phone', 'Registered At'];
+    const rows = allUsers.map(u => [
+        u.name || '',
+        u.username || '',
+        u.phone || '',
+        u.updatedAt ? new Date(u.updatedAt).toISOString() : '',
+    ]);
+
+    const csv = [header, ...rows]
+        .map(row => row.map(cell => {
+            const s = String(cell).replace(/"/g, '""');
+            return /[",\n]/.test(s) ? `"${s}"` : s;
+        }).join(','))
+        .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'sandesai-users-' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+});
+</script>
+
+</body>
+</html>
