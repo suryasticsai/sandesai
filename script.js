@@ -1,35 +1,27 @@
 // ================================================================
 // SCRIPT.JS – UI, Navigation, Contacts, Settings, Firebase Messaging,
-//             Media (base64 inline), Call signaling
+//             Media, Call signaling, Call log sync, Profile lookup
 // ================================================================
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. PARALLAX (safe fallback)
+// 1. PARALLAX
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 (function initParallax() {
     try {
         const scene = document.querySelector('.parallax-scene');
         if (scene && typeof Parallax !== 'undefined' && typeof jQuery !== 'undefined') {
             new Parallax(scene, {
-                relativeInput: true,
-                clipRelativeInput: true,
-                calibrateX: true,
-                calibrateY: true,
-                invertX: false,
-                invertY: false,
-                limitX: 25,
-                limitY: 25,
-                scalarX: 10,
-                scalarY: 10,
-                frictionX: 0.1,
-                frictionY: 0.1,
-                originX: 0.5,
-                originY: 0.5,
-                precision: 1,
+                relativeInput: true, clipRelativeInput: true,
+                calibrateX: true, calibrateY: true,
+                invertX: false, invertY: false,
+                limitX: 25, limitY: 25,
+                scalarX: 10, scalarY: 10,
+                frictionX: 0.1, frictionY: 0.1,
+                originX: 0.5, originY: 0.5, precision: 1,
             });
             console.log('🌀 Parallax initialized');
         } else {
-            console.warn('⚠️ Parallax or jQuery missing, skipping effect');
+            console.warn('⚠️ Parallax or jQuery missing');
         }
     } catch (err) {
         console.warn('⚠️ Parallax init skipped:', err.message);
@@ -37,20 +29,15 @@
 })();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CONTACTS DATA
+// 2. CONTACTS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const defaultContacts = [];
-
 function getSavedContacts() {
     try { return JSON.parse(localStorage.getItem('savedContacts')) || []; } catch (e) { return []; }
 }
 
 function saveContact(name, number, username) {
     const contacts = getSavedContacts();
-    if (contacts.find(c => c.number === number)) {
-        showToast('Contact already saved');
-        return false;
-    }
+    if (contacts.find(c => c.number === number)) { showToast('Contact already saved'); return false; }
     contacts.push({ name, number, username: username || '', id: Date.now() });
     localStorage.setItem('savedContacts', JSON.stringify(contacts));
     renderChatList();
@@ -109,8 +96,11 @@ let firebaseReady = false;
 let db = null, auth = null;
 let myNumber = null;
 
+// Profile cache: phone -> { name, username, loaded }
+const userProfileCache = {};
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. FIREBASE MESSAGING
+// 4. FIREBASE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FIREBASE_CONFIG = {
     apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
@@ -123,10 +113,7 @@ const FIREBASE_CONFIG = {
 
 function initFirebaseMessaging() {
     if (firebaseReady) return;
-    if (typeof firebase === 'undefined') {
-        console.warn('Firebase not loaded');
-        return;
-    }
+    if (typeof firebase === 'undefined') { console.warn('Firebase not loaded'); return; }
     try {
         if (!firebase.apps || firebase.apps.length === 0) {
             firebase.initializeApp(FIREBASE_CONFIG);
@@ -146,10 +133,7 @@ function initFirebaseMessaging() {
 function startMessaging() {
     const stored = localStorage.getItem('premCallNumber');
     const verified = localStorage.getItem('premCallVerified') === 'true';
-    if (!stored || !verified) {
-        console.warn('Not registered, skip messaging');
-        return;
-    }
+    if (!stored || !verified) { console.warn('Not registered, skip messaging'); return; }
     myNumber = stored;
     document.getElementById('myNumberDisplay').textContent = myNumber;
 
@@ -160,23 +144,21 @@ function startMessaging() {
             if (doc.exists) {
                 const mapped = doc.data().number;
                 if (mapped !== myNumber) {
-                    console.warn('Number mismatch: ' + mapped + ' vs ' + myNumber + '. Updating mapping...');
+                    console.warn('Number mismatch: ' + mapped + ' vs ' + myNumber);
                     const batch = db.batch();
                     batch.update(db.collection('uids').doc(uid), { number: myNumber });
                     batch.set(db.collection('users').doc(myNumber), { uid: uid });
                     return batch.commit().then(() => {
-                        console.log('✅ Mapping updated to new number: ' + myNumber);
+                        console.log('✅ Mapping updated: ' + myNumber);
                         showToast('Number updated in messaging system');
                     });
-                } else {
-                    return Promise.resolve();
                 }
-            } else {
-                const batch = db.batch();
-                batch.set(db.collection('users').doc(myNumber), { uid: uid });
-                batch.set(db.collection('uids').doc(uid), { number: myNumber });
-                return batch.commit();
+                return Promise.resolve();
             }
+            const batch = db.batch();
+            batch.set(db.collection('users').doc(myNumber), { uid: uid });
+            batch.set(db.collection('uids').doc(uid), { number: myNumber });
+            return batch.commit();
         });
     }).then(() => {
         console.log('Messaging ready');
@@ -187,6 +169,7 @@ function startMessaging() {
 
         listenConversationsList();
         initCallSignaling();
+        initCallLogSync();
         renderChatList();
     }).catch(err => {
         console.error('Messaging init error:', err);
@@ -205,9 +188,7 @@ function listenConversationsList() {
                 const peer = d.from === myNumber ? d.to : d.from;
                 if (!latestByPeer[peer] || d.timestamp > latestByPeer[peer].timestamp) {
                     latestByPeer[peer] = {
-                        peer: peer,
-                        text: d.text,
-                        timestamp: d.timestamp,
+                        peer: peer, text: d.text, timestamp: d.timestamp,
                         direction: d.from === myNumber ? 'outgoing' : 'incoming',
                     };
                 }
@@ -222,9 +203,7 @@ function listenConversationsList() {
                 };
             });
             renderChatList();
-        }, err => {
-            console.error('Conversation list listener error:', err);
-        });
+        }, err => console.error('Conversation list listener error:', err));
 }
 
 function listenPeerConversation(peer) {
@@ -247,13 +226,9 @@ function listenPeerConversation(peer) {
             });
             msgs.sort((a, b) => a.timestamp - b.timestamp);
             firestoreConversations[peer] = msgs;
-            if (activeChatPeer === peer) {
-                renderMessages();
-            }
+            if (activeChatPeer === peer) renderMessages();
             renderChatList();
-        }, err => {
-            console.error('Conversation listener error for ' + peer, err);
-        });
+        }, err => console.error('Conversation listener error for ' + peer, err));
     conversationListeners[peer] = unsub;
 }
 
@@ -262,23 +237,14 @@ function sendMessageToFirestore(peer, text) {
     db.collection('messages').add({
         conversationId: [myNumber, peer].sort().join('_'),
         participants: [myNumber, peer],
-        from: myNumber,
-        to: peer,
-        text: text,
-        timestamp: Date.now()
-    }).then(() => {
-        showToast('Sent');
-    }).catch(err => {
-        console.error('Send error:', err);
-        showToast('Send failed: ' + err.message);
-    });
+        from: myNumber, to: peer, text: text, timestamp: Date.now()
+    }).then(() => showToast('Sent'))
+      .catch(err => { console.error('Send error:', err); showToast('Send failed: ' + err.message); });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4b. MEDIA HELPERS
+// 4b. MEDIA
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// Firestore doc limit is 1 MB. Stay well under to leave room for metadata.
 const MAX_INLINE_MEDIA_BYTES = 700 * 1024;
 
 function fileToBase64(file) {
@@ -292,10 +258,8 @@ function fileToBase64(file) {
 
 function isInlineMediaType(mime) {
     if (!mime) return false;
-    return /^image\//.test(mime) ||
-           /^video\//.test(mime) ||
-           /^audio\//.test(mime) ||
-           mime === 'application/pdf';
+    return /^image\//.test(mime) || /^video\//.test(mime) ||
+           /^audio\//.test(mime) || mime === 'application/pdf';
 }
 
 async function handleAttachFiles(fileList) {
@@ -306,8 +270,6 @@ async function handleAttachFiles(fileList) {
     for (const file of files) {
         try {
             const messageId = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
-            // Small file → base64 inline (works cross-device)
             if (file.size <= MAX_INLINE_MEDIA_BYTES && isInlineMediaType(file.type)) {
                 const dataUrl = await fileToBase64(file);
                 await sendMediaMessageToFirestore(activeChatPeer, '📎 ' + (file.name || 'file'), {
@@ -319,22 +281,16 @@ async function handleAttachFiles(fileList) {
                 showToast('📎 Sent: ' + (file.name || 'file'));
                 continue;
             }
-
-            // Large file → local save + reference + PeerJS if connected
             if (!window.MediaStore) { showToast('Media storage unavailable'); continue; }
             const mediaId = await window.MediaStore.saveMediaFile(file, activeChatPeer, messageId);
             const refText = '📎 ' + (file.name || 'file') + ' [media:' + mediaId + ']';
             sendMessageToFirestore(activeChatPeer, refText);
-
-            if (window.PremCall && window.PremCall.getActiveDataConn &&
-                window.PremCall.getActiveDataConn()) {
+            if (window.PremCall && window.PremCall.getActiveDataConn && window.PremCall.getActiveDataConn()) {
                 try {
                     await window.PremCall.sendFile(file, activeChatPeer, (sent, total) => {
                         if (sent === total) showToast('📤 Sent: ' + file.name);
                     });
-                } catch (err) {
-                    console.warn('Peer transfer failed (local copy kept):', err);
-                }
+                } catch (err) { console.warn('Peer transfer failed:', err); }
             }
             showToast('📎 Attached (large): ' + (file.name || 'file'));
         } catch (err) {
@@ -349,11 +305,7 @@ function sendMediaMessageToFirestore(peer, text, media) {
     return db.collection('messages').add({
         conversationId: [myNumber, peer].sort().join('_'),
         participants: [myNumber, peer],
-        from: myNumber,
-        to: peer,
-        text: text,
-        timestamp: Date.now(),
-        media: media,
+        from: myNumber, to: peer, text: text, timestamp: Date.now(), media: media,
     });
 }
 
@@ -363,22 +315,17 @@ function initIncomingFileListener() {
         const mediaId = detail.mediaId;
         const meta = detail.meta || {};
         if (!mediaId) return;
-
         let peer = meta.chatId || null;
         if (!peer && window.PremCall && window.PremCall.getActiveDataConn) {
             const conn = window.PremCall.getActiveDataConn();
             if (conn && conn.peer) peer = conn.peer;
         }
-
         showToast('📥 Received: ' + (meta.fileName || 'file'));
         if (!peer) return;
-
         if (!firestoreConversations[peer]) firestoreConversations[peer] = [];
         firestoreConversations[peer].push({
             text: '📎 ' + (meta.fileName || 'file') + ' [media:' + mediaId + ']',
-            timestamp: Date.now(),
-            direction: 'incoming',
-            from: peer
+            timestamp: Date.now(), direction: 'incoming', from: peer
         });
         if (activeChatPeer === peer) renderMessages();
         renderChatList();
@@ -386,14 +333,13 @@ function initIncomingFileListener() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4c. CALL SIGNALING (Firestore fallback ring)
+// 4c. CALL SIGNALING (Firestore ring fallback)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let callSignalUnsub = null;
 
 function initCallSignaling() {
     if (!db || !myNumber) return;
     if (callSignalUnsub) { try { callSignalUnsub(); } catch (e) {} callSignalUnsub = null; }
-
     callSignalUnsub = db.collection('call_signals')
         .where('to', '==', myNumber)
         .where('status', '==', 'ringing')
@@ -417,33 +363,24 @@ function initCallSignaling() {
                     }
                 }
             });
-        }, err => {
-            console.warn('Call signal listener error:', err);
-        });
+        }, err => console.warn('Call signal listener error:', err));
 }
 
 async function sendCallSignal(toNumber) {
     if (!db || !myNumber || !toNumber) return null;
     try {
         const ref = await db.collection('call_signals').add({
-            from: myNumber,
-            to: toNumber,
-            status: 'ringing',
-            startedAt: Date.now(),
+            from: myNumber, to: toNumber, status: 'ringing', startedAt: Date.now(),
         });
         return ref.id;
-    } catch (e) {
-        console.warn('Send call signal failed:', e);
-        return null;
-    }
+    } catch (e) { console.warn('Send call signal failed:', e); return null; }
 }
 
 async function updateCallSignal(signalId, status) {
     if (!db || !signalId) return;
     try {
         await db.collection('call_signals').doc(signalId).set({
-            status: status,
-            updatedAt: Date.now(),
+            status: status, updatedAt: Date.now(),
         }, { merge: true });
         if (status !== 'ringing') {
             setTimeout(() => {
@@ -453,14 +390,100 @@ async function updateCallSignal(signalId, status) {
     } catch (e) {}
 }
 
-window.SandesaiSignaling = {
-    send: sendCallSignal,
-    update: updateCallSignal,
-    init: initCallSignaling,
-};
+window.SandesaiSignaling = { send: sendCallSignal, update: updateCallSignal, init: initCallSignaling };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. RENDER FUNCTIONS
+// 4d. CALL LOG SYNC (Firestore <-> Local)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let callLogsUnsub = null;
+
+function initCallLogSync() {
+    if (!db || !myNumber) return;
+    if (callLogsUnsub) { try { callLogsUnsub(); } catch (e) {} callLogsUnsub = null; }
+    callLogsUnsub = db.collection('call_logs')
+        .where('owner', '==', myNumber)
+        .onSnapshot(snapshot => {
+            try {
+                const remoteLogs = snapshot.docs.map(doc => doc.data());
+                const localLogs = JSON.parse(localStorage.getItem('premCallLogs')) || [];
+                const byId = new Map();
+                localLogs.forEach(l => byId.set(l.id, l));
+                remoteLogs.forEach(l => byId.set(l.id, l));
+                const merged = Array.from(byId.values())
+                    .sort((a, b) => (b.started || 0) - (a.started || 0))
+                    .slice(0, 100);
+                localStorage.setItem('premCallLogs', JSON.stringify(merged));
+                if (window.renderCallList) window.renderCallList();
+            } catch (e) { console.warn('Call log merge failed:', e); }
+        }, err => console.warn('Call log listener error:', err));
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 4e. USER PROFILE LOOKUP
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function fetchUserProfile(phone) {
+    if (!phone) return null;
+    if (userProfileCache[phone] && userProfileCache[phone].loaded) return userProfileCache[phone];
+    if (!db) return null;
+    try {
+        const doc = await db.collection('profiles').doc(phone).get();
+        if (doc.exists) {
+            const data = doc.data();
+            userProfileCache[phone] = {
+                name: data.name || null,
+                username: data.username || null,
+                loaded: true,
+            };
+            return userProfileCache[phone];
+        }
+    } catch (e) { console.warn('Profile fetch failed for ' + phone, e); }
+    userProfileCache[phone] = { name: null, username: null, loaded: true };
+    return null;
+}
+
+function getDisplayNameForPeer(phone) {
+    const saved = getContactName(phone);
+    if (saved) return saved;
+    const cached = userProfileCache[phone];
+    if (cached && cached.name) return cached.name;
+    return phone;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 4f. REFRESH / RECONNECT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function refreshConnection() {
+    const btn = document.getElementById('refreshConnectionBtn');
+    if (btn) btn.classList.add('spinning');
+    showToast('🔄 Reconnecting…');
+    try {
+        const storedNum = localStorage.getItem('premCallNumber');
+        const verified = localStorage.getItem('premCallVerified') === 'true';
+        if (storedNum && verified && window.PremCall) {
+            if (window.PremCall.reinit) window.PremCall.reinit(storedNum);
+            else window.PremCall.init(storedNum);
+        }
+        if (!firebaseReady) {
+            initFirebaseMessaging();
+        } else {
+            if (typeof initCallSignaling === 'function') initCallSignaling();
+            if (typeof initCallLogSync === 'function') initCallLogSync();
+        }
+        renderChatList();
+        renderCallList();
+        setTimeout(() => {
+            showToast('✅ Connection refreshed');
+            if (btn) btn.classList.remove('spinning');
+        }, 900);
+    } catch (e) {
+        console.error('Refresh failed:', e);
+        showToast('Refresh failed: ' + e.message);
+        if (btn) btn.classList.remove('spinning');
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 5. RENDER
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderChatList() {
     const container = document.getElementById('chatList');
@@ -468,20 +491,16 @@ function renderChatList() {
 
     const allContacts = getAllContacts();
     const convPeers = Object.keys(firestoreConversations);
+
     convPeers.forEach(num => {
         if (!allContacts.find(c => c.number === num)) {
             allContacts.push({
                 id: Date.now() + Math.random(),
-                name: num,
+                name: getDisplayNameForPeer(num),
                 img: 'https://i.pravatar.cc/150?img=' + Math.floor(Math.random() * 70),
-                lastMsg: 'Start chat',
-                time: '—',
-                unread: 0,
-                online: false,
+                lastMsg: 'Start chat', time: '—', unread: 0, online: false,
                 color: 'linear-gradient(135deg,#a78bfa,#8b5cf6)',
-                messages: [],
-                isSaved: false,
-                number: num
+                messages: [], isSaved: false, number: num
             });
         }
     });
@@ -496,15 +515,20 @@ function renderChatList() {
 
     allContacts.sort((a, b) => {
         const timeA = (a.number && firestoreConversations[a.number] && firestoreConversations[a.number].length > 0)
-            ? firestoreConversations[a.number][firestoreConversations[a.number].length - 1].timestamp || 0
-            : 0;
+            ? firestoreConversations[a.number][firestoreConversations[a.number].length - 1].timestamp || 0 : 0;
         const timeB = (b.number && firestoreConversations[b.number] && firestoreConversations[b.number].length > 0)
-            ? firestoreConversations[b.number][firestoreConversations[b.number].length - 1].timestamp || 0
-            : 0;
+            ? firestoreConversations[b.number][firestoreConversations[b.number].length - 1].timestamp || 0 : 0;
         return timeB - timeA;
     });
 
     container.innerHTML = '';
+
+    convPeers.forEach(num => {
+        if (!getContactName(num) && (!userProfileCache[num] || !userProfileCache[num].loaded)) {
+            fetchUserProfile(num).then(p => { if (p && p.name) renderChatList(); });
+        }
+    });
+
     allContacts.forEach(c => {
         const div = document.createElement('div');
         div.className = 'chat-item';
@@ -552,10 +576,8 @@ function renderMessages() {
         div.style.animationDelay = `${index * 0.04}s`;
 
         const time = msg.timestamp
-            ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : '';
+            ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-        // 1) Inline base64 media (cross-device)
         if (msg.media && msg.media.data) {
             const m = msg.media;
             const nameLine = document.createElement('div');
@@ -571,50 +593,40 @@ function renderMessages() {
                 el.style.cssText = 'max-width:100%;border-radius:10px;display:block;';
             } else if (type.startsWith('video/')) {
                 el = document.createElement('video');
-                el.src = m.data;
-                el.controls = true;
+                el.src = m.data; el.controls = true;
                 el.style.cssText = 'max-width:100%;border-radius:10px;display:block;';
             } else if (type.startsWith('audio/')) {
                 el = document.createElement('audio');
-                el.src = m.data;
-                el.controls = true;
+                el.src = m.data; el.controls = true;
                 el.style.cssText = 'width:100%;';
             } else {
                 el = document.createElement('a');
-                el.href = m.data;
-                el.download = m.name || 'file';
+                el.href = m.data; el.download = m.name || 'file';
                 el.textContent = '⬇️ Download (' + Math.round((m.size || 0) / 1024) + ' KB)';
                 el.style.cssText = 'color:#a78bfa;text-decoration:underline;font-size:0.85rem;display:inline-block;';
             }
             div.appendChild(el);
-        }
-        // 2) [media:ID] local IndexedDB reference (large-file fallback)
-        else {
+        } else {
             const mediaMatch = (msg.text || '').match(/\[media:([^\]]+)\]/);
             const cleanText = (msg.text || '').replace(/\[media:[^\]]+\]/, '').trim();
-
             if (cleanText) {
                 const textSpan = document.createElement('span');
                 textSpan.textContent = cleanText;
                 div.appendChild(textSpan);
             }
-
             if (mediaMatch && window.MediaStore) {
                 const mediaId = mediaMatch[1];
                 const placeholder = document.createElement('div');
                 placeholder.textContent = '📎 Loading…';
                 placeholder.style.cssText = 'opacity:0.6;font-size:0.8rem;margin-top:4px;';
                 div.appendChild(placeholder);
-
                 window.MediaStore.renderMediaElement(mediaId).then(res => {
                     if (!res || !res.el) { placeholder.textContent = '⚠️ Media unavailable'; return; }
                     placeholder.replaceWith(res.el);
-                    if (res.el.tagName === 'IMG') {
-                        res.el.onload = () => window.MediaStore.revokeMediaURL(res.url);
-                    }
+                    if (res.el.tagName === 'IMG') res.el.onload = () => window.MediaStore.revokeMediaURL(res.url);
                 }).catch(err => {
                     console.warn('Media load failed:', err);
-                    placeholder.textContent = '⚠️ Media unavailable — ask sender to resend under 700 KB';
+                    placeholder.textContent = '⚠️ Media unavailable (sender\'s device only)';
                 });
             }
         }
@@ -623,15 +635,24 @@ function renderMessages() {
         timeEl.className = 'time-tag';
         timeEl.textContent = time;
         div.appendChild(timeEl);
-
         container.appendChild(div);
     });
 
     container.scrollTop = container.scrollHeight;
 
-    const name = getContactName(activeChatPeer) || activeChatPeer;
+    const name = getDisplayNameForPeer(activeChatPeer);
     document.getElementById('chatName').textContent = name;
-    document.getElementById('chatStatus').textContent = `Chatting with ${activeChatPeer}`;
+
+    if (!getContactName(activeChatPeer) && (!userProfileCache[activeChatPeer] || !userProfileCache[activeChatPeer].loaded)) {
+        fetchUserProfile(activeChatPeer).then(() => {
+            document.getElementById('chatName').textContent = getDisplayNameForPeer(activeChatPeer);
+        });
+    }
+
+    const profile = userProfileCache[activeChatPeer];
+    const usernamePart = profile && profile.username ? ' · @' + profile.username : '';
+    document.getElementById('chatStatus').textContent = `Chatting with ${activeChatPeer}${usernamePart}`;
+
     const avatarEl = document.getElementById('chatAvatar');
     avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
     avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
@@ -665,8 +686,8 @@ function renderCallList() {
         const calls = groups[number];
         const latest = calls.reduce((a, b) => (a.started > b.started ? a : b));
         const callCount = calls.length;
-        const contactName = getContactName(number) || number;
-        const displayName = contactName === number ? number : contactName;
+        const contactName = getContactName(number);
+        const displayName = contactName || getDisplayNameForPeer(number);
         const missedCount = calls.filter(c => c.direction === 'missed').length;
         const hasMissed = missedCount > 0;
         const dir = latest.direction || 'incoming';
@@ -705,16 +726,15 @@ function renderCallList() {
                     </div>
                 </div>
                 <div style="display:flex;gap:8px;flex-shrink:0;">
-                    <button class="call-action-btn" data-action="call" data-number="${number}" style="background:rgba(47,217,146,0.08);border:none;color:#2fd992;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-phone"></i></button>
-                    <button class="call-action-btn" data-action="message" data-number="${number}" style="background:rgba(139,92,246,0.08);border:none;color:#a78bfa;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;transition:all 0.2s;"><i class="fas fa-comment"></i></button>
+                    <button class="call-action-btn" data-action="call" data-number="${number}" style="background:rgba(47,217,146,0.08);border:none;color:#2fd992;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;"><i class="fas fa-phone"></i></button>
+                    <button class="call-action-btn" data-action="message" data-number="${number}" style="background:rgba(139,92,246,0.08);border:none;color:#a78bfa;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:0.8rem;"><i class="fas fa-comment"></i></button>
                 </div>
             </div>
         `;
 
         div.addEventListener('click', (e) => {
             if (e.target.closest('.call-action-btn')) return;
-            const logId = latest.id;
-            if (window.openCallDetails) window.openCallDetails(logId);
+            if (window.openCallDetails) window.openCallDetails(latest.id);
         });
 
         div.querySelectorAll('.call-action-btn').forEach(btn => {
@@ -722,15 +742,10 @@ function renderCallList() {
                 e.stopPropagation();
                 const action = btn.dataset.action;
                 const num = btn.dataset.number;
-                if (action === 'call') {
-                    if (window.PremCall) PremCall.call(num, false);
-                } else if (action === 'message') {
-                    switchTab('chat');
-                    openChat(num);
-                }
+                if (action === 'call') { if (window.PremCall) PremCall.call(num, false); }
+                else if (action === 'message') { switchTab('chat'); openChat(num); }
             });
         });
-
         container.appendChild(div);
     });
 
@@ -763,9 +778,7 @@ function renderProfileView() {
     if (savedUser) {
         try {
             const user = JSON.parse(savedUser);
-            if (user && user.registered) {
-                if (link) link.style.display = 'none';
-            }
+            if (user && user.registered && link) link.style.display = 'none';
         } catch (e) {}
     }
 }
@@ -782,12 +795,14 @@ function openContactProfile(peer) {
     const overlay = document.getElementById('contactProfileOverlay');
     if (!overlay) return;
 
-    const name = getContactName(peer) || peer;
+    const name = getDisplayNameForPeer(peer);
     const bio = contactBios[peer] || 'Tap to add a short bio';
+    const profile = userProfileCache[peer] || {};
 
     document.getElementById('contactProfileAvatarText').textContent = name.charAt(0).toUpperCase();
     document.getElementById('contactProfileName').textContent = name;
-    document.getElementById('contactProfileUsername').textContent = '@' + name.toLowerCase().replace(/\s/g, '');
+    document.getElementById('contactProfileUsername').textContent =
+        profile.username ? '@' + profile.username : '@' + name.toLowerCase().replace(/\s/g, '');
     document.getElementById('contactProfilePhone').textContent = '+91 ' + peer;
     document.getElementById('contactProfileBio').textContent = bio;
     document.getElementById('contactBioInput').value = bio;
@@ -812,6 +827,19 @@ function openContactProfile(peer) {
     overlay.style.flexDirection = 'column';
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
+
+    // Fetch missing profile
+    if (!getContactName(peer) && (!userProfileCache[peer] || !userProfileCache[peer].loaded)) {
+        fetchUserProfile(peer).then(() => {
+            const p = userProfileCache[peer];
+            if (p && p.username) {
+                document.getElementById('contactProfileUsername').textContent = '@' + p.username;
+            }
+            if (p && p.name) {
+                document.getElementById('contactProfileName').textContent = p.name;
+            }
+        });
+    }
 }
 
 function closeContactProfile() {
@@ -840,9 +868,7 @@ function initContactProfile() {
     }
 
     backBtn.addEventListener('click', closeContactProfile);
-    overlay.addEventListener('click', (e) => {
-        if (e.target === e.currentTarget) closeContactProfile();
-    });
+    overlay.addEventListener('click', (e) => { if (e.target === e.currentTarget) closeContactProfile(); });
 
     bio.addEventListener('click', () => {
         if (!currentProfilePeer) return;
@@ -863,40 +889,30 @@ function initContactProfile() {
         });
     }
 
-    if (bioCancel) {
-        bioCancel.addEventListener('click', () => {
-            bioEditor.style.display = 'none';
-        });
-    }
+    if (bioCancel) bioCancel.addEventListener('click', () => { bioEditor.style.display = 'none'; });
 
-    if (callBtn) {
-        callBtn.addEventListener('click', () => {
-            if (!currentProfilePeer) return;
-            if (window.PremCall) PremCall.call(currentProfilePeer, false);
-            closeContactProfile();
-        });
-    }
+    if (callBtn) callBtn.addEventListener('click', () => {
+        if (!currentProfilePeer) return;
+        if (window.PremCall) PremCall.call(currentProfilePeer, false);
+        closeContactProfile();
+    });
 
-    if (videoBtn) {
-        videoBtn.addEventListener('click', () => {
-            if (!currentProfilePeer) return;
-            if (window.PremCall) PremCall.call(currentProfilePeer, true);
-            closeContactProfile();
-        });
-    }
+    if (videoBtn) videoBtn.addEventListener('click', () => {
+        if (!currentProfilePeer) return;
+        if (window.PremCall) PremCall.call(currentProfilePeer, true);
+        closeContactProfile();
+    });
 
-    if (msgBtn) {
-        msgBtn.addEventListener('click', () => {
-            if (!currentProfilePeer) return;
-            closeContactProfile();
-            switchTab('chat');
-            openChat(currentProfilePeer);
-        });
-    }
+    if (msgBtn) msgBtn.addEventListener('click', () => {
+        if (!currentProfilePeer) return;
+        closeContactProfile();
+        switchTab('chat');
+        openChat(currentProfilePeer);
+    });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. SUMMARIZE CHAT
+// 8. SUMMARIZE CHAT (AI suggestion chip)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function summarizeCurrentChat() {
     if (!activeChatPeer) { showToast('No active chat to summarize'); return; }
@@ -953,23 +969,17 @@ async function summarizeCall(logId) {
         if (response.ok) {
             const data = await response.json();
             summary = data.text || summary;
-        } else {
-            throw new Error('API returned ' + response.status);
-        }
+        } else throw new Error('API returned ' + response.status);
 
         logs[logIndex].summary = summary;
-        if (window.PremCall && window.PremCall.updateLogSummary) {
-            window.PremCall.updateLogSummary(logId, summary);
-        }
+        if (window.PremCall && window.PremCall.updateLogSummary) window.PremCall.updateLogSummary(logId, summary);
         if (window.openCallDetails) window.openCallDetails(logId);
         showToast('📝 Call summarized!');
     } catch (err) {
         console.error('Summarize call error:', err);
         const fallback = "Could not generate summary. Please try again later.";
         logs[logIndex].summary = fallback;
-        if (window.PremCall && window.PremCall.updateLogSummary) {
-            window.PremCall.updateLogSummary(logId, fallback);
-        }
+        if (window.PremCall && window.PremCall.updateLogSummary) window.PremCall.updateLogSummary(logId, fallback);
         if (window.openCallDetails) window.openCallDetails(logId);
         showToast('Error summarizing call: ' + err.message);
     }
@@ -1013,13 +1023,22 @@ function openChat(peer) {
     activeChatPeer = peer;
     document.getElementById('chatView').classList.add('open');
     document.getElementById('listView').classList.add('shrink');
+
+    // Fetch profile before render if missing
+    const needsFetch = !getContactName(peer) && (!userProfileCache[peer] || !userProfileCache[peer].loaded);
+    if (needsFetch) {
+        fetchUserProfile(peer).then(() => {
+            renderMessages();
+            document.getElementById('chatName').textContent = getDisplayNameForPeer(peer);
+        });
+    }
+
     renderMessages();
-    const name = getContactName(peer) || peer;
-    document.getElementById('chatName').textContent = name;
-    document.getElementById('chatStatus').textContent = `Chatting with ${peer}`;
+    document.getElementById('chatName').textContent = getDisplayNameForPeer(peer);
+
     const avatarEl = document.getElementById('chatAvatar');
     avatarEl.style.background = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
-    avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${name.charAt(0).toUpperCase()}</span>`;
+    avatarEl.innerHTML = `<span style="font-size:1.2rem;font-weight:700;">${getDisplayNameForPeer(peer).charAt(0).toUpperCase()}</span>`;
     document.getElementById('msgInput').focus();
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
     applyTheme(savedTheme);
@@ -1043,8 +1062,7 @@ function sendMessage() {
     if (!text || !activeChatPeer || !firebaseReady) return;
     const peer = activeChatPeer;
     if (!firestoreConversations[peer]) firestoreConversations[peer] = [];
-    const tempMsg = { text, timestamp: Date.now(), direction: 'outgoing', from: myNumber };
-    firestoreConversations[peer].push(tempMsg);
+    firestoreConversations[peer].push({ text, timestamp: Date.now(), direction: 'outgoing', from: myNumber });
     renderMessages();
     input.value = '';
     sendMessageToFirestore(peer, text);
@@ -1065,9 +1083,7 @@ function initSettings() {
     });
 
     const savedTheme = localStorage.getItem('neonTheme') || 'dark';
-    document.querySelectorAll('.theme-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.theme === savedTheme);
-    });
+    document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.theme === savedTheme));
     applyTheme(savedTheme);
 
     document.querySelectorAll('.toggle-switch input').forEach(input => {
@@ -1138,6 +1154,20 @@ function initRegistration() {
                     document.getElementById('headerStatusDot').className = 'status-dot connecting';
                 }
                 if (!firebaseReady) initFirebaseMessaging();
+
+                // Republish profile + resubscribe (in case new device)
+                setTimeout(() => {
+                    if (db && user.phone) {
+                        db.collection('profiles').doc(user.phone).set({
+                            phone: user.phone,
+                            name: user.name || 'User',
+                            username: user.userid || '',
+                            updatedAt: Date.now()
+                        }, { merge: true }).catch(() => {});
+                    }
+                    initCallSignaling();
+                    initCallLogSync();
+                }, 1200);
             }
         } catch (e) {}
     }
@@ -1185,7 +1215,22 @@ function initRegistration() {
             document.getElementById('headerStatusDot').className = 'status-dot connecting';
         }
         if (!firebaseReady) initFirebaseMessaging();
-        setTimeout(() => { initCallSignaling(); }, 800);
+
+        // Publish profile + start sync
+        setTimeout(() => {
+            if (db && phone) {
+                db.collection('profiles').doc(phone).set({
+                    phone: phone,
+                    name: name,
+                    username: userid,
+                    updatedAt: Date.now()
+                }, { merge: true }).then(() => {
+                    console.log('📇 Profile published');
+                }).catch(err => console.warn('Profile publish failed:', err));
+            }
+            initCallSignaling();
+            initCallLogSync();
+        }, 1200);
     });
 }
 
@@ -1259,10 +1304,7 @@ function initDialpad() {
         });
     });
 
-    clearBtn.addEventListener('click', () => {
-        number = number.slice(0, -1);
-        updateDisplay();
-    });
+    clearBtn.addEventListener('click', () => { number = number.slice(0, -1); updateDisplay(); });
 
     document.getElementById('dialCall').addEventListener('click', () => {
         if (number.trim()) {
@@ -1271,8 +1313,8 @@ function initDialpad() {
                 if (window.PremCall) PremCall.call(number, false);
                 number = '';
                 updateDisplay();
-            } else { showToast('Enter exactly 10 digits'); }
-        } else { showToast('Enter a number'); }
+            } else showToast('Enter exactly 10 digits');
+        } else showToast('Enter a number');
     });
 
     document.getElementById('dialMessage').addEventListener('click', () => {
@@ -1284,8 +1326,8 @@ function initDialpad() {
                 openChat(number);
                 number = '';
                 updateDisplay();
-            } else { showToast('Enter exactly 10 digits to message'); }
-        } else { showToast('Enter a number'); }
+            } else showToast('Enter exactly 10 digits to message');
+        } else showToast('Enter a number');
     });
 }
 
@@ -1402,7 +1444,7 @@ function initDebugConsole() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. CALL DETAILS MODAL
+// 14. CALL DETAILS MODAL & SAVE CONTACT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
@@ -1410,7 +1452,7 @@ window.openCallDetails = function(logId) {
     if (!log) { showToast('Call log not found'); return; }
 
     const number = log.number;
-    const contactName = getContactName(number) || number;
+    const contactName = getDisplayNameForPeer(number);
     const isSaved = getSavedContacts().some(c => c.number === number);
     const allCallsForNumber = logs.filter(l => l.number === number);
 
@@ -1612,6 +1654,7 @@ function setupEventListeners() {
     const msgInput = document.getElementById('msgInput');
     if (msgInput) msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
 
+    // Attach button + hidden file input
     const attachBtn = document.getElementById('attachBtn');
     const mediaFileInput = document.getElementById('mediaFileInput');
     if (attachBtn && mediaFileInput) {
@@ -1624,39 +1667,28 @@ function setupEventListeners() {
 
     initIncomingFileListener();
 
+    // Chat header: Call & Video buttons
     const chatCallBtn = document.getElementById('chatCallBtn');
     const chatVideoBtn = document.getElementById('chatVideoBtn');
-    if (chatCallBtn) {
-        chatCallBtn.addEventListener('click', () => {
-            if (activeChatPeer && window.PremCall) PremCall.call(activeChatPeer, false);
-            else showToast('No active chat');
-        });
-    }
-    if (chatVideoBtn) {
-        chatVideoBtn.addEventListener('click', () => {
-            if (activeChatPeer && window.PremCall) PremCall.call(activeChatPeer, true);
-            else showToast('No active chat');
-        });
-    }
-    document.querySelector('.call-btn')?.addEventListener('click', () => {
+    if (chatCallBtn) chatCallBtn.addEventListener('click', () => {
         if (activeChatPeer && window.PremCall) PremCall.call(activeChatPeer, false);
         else showToast('No active chat');
     });
-    document.querySelector('.video-btn')?.addEventListener('click', () => {
+    if (chatVideoBtn) chatVideoBtn.addEventListener('click', () => {
         if (activeChatPeer && window.PremCall) PremCall.call(activeChatPeer, true);
         else showToast('No active chat');
     });
 
     document.querySelector('.voice-btn')?.addEventListener('click', () => {
-        if (activeChatPeer && window.PremCall) {
-            PremCall.call(activeChatPeer, false);
-        } else {
+        if (activeChatPeer && window.PremCall) PremCall.call(activeChatPeer, false);
+        else {
             document.getElementById('dialpadOverlay').classList.add('open');
             document.getElementById('dialpadDisplayText').textContent = '';
             document.getElementById('dialClearBtn').style.display = 'none';
         }
     });
 
+    // AI buttons
     const openAiBtn = document.getElementById('openAiBtn');
     if (openAiBtn) openAiBtn.addEventListener('click', () => toggleAiOverlay(true));
     const openAiFromChat = document.getElementById('openAiFromChat');
@@ -1667,43 +1699,40 @@ function setupEventListeners() {
     if (aiOverlay) aiOverlay.addEventListener('click', (e) => { if (e.target === e.currentTarget) toggleAiOverlay(false); });
 
     const aiPromptSend = document.getElementById('aiPromptSend');
-    if (aiPromptSend) {
-        aiPromptSend.addEventListener('click', () => {
-            const input = document.getElementById('aiPromptInput');
-            if (!input) return;
-            const val = input.value.trim();
-            if (!val) return;
-            showToast('🧠 AI: "' + val + '" (simulated)');
-            input.value = '';
-            toggleAiOverlay(false);
-        });
-    }
+    if (aiPromptSend) aiPromptSend.addEventListener('click', () => {
+        const input = document.getElementById('aiPromptInput');
+        if (!input) return;
+        const val = input.value.trim();
+        if (!val) return;
+        showToast('🧠 AI: "' + val + '" (simulated)');
+        input.value = '';
+        toggleAiOverlay(false);
+    });
     const aiPromptInput = document.getElementById('aiPromptInput');
-    if (aiPromptInput) {
-        aiPromptInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const btn = document.getElementById('aiPromptSend');
-                if (btn) btn.click();
-            }
-        });
-    }
+    if (aiPromptInput) aiPromptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            const btn = document.getElementById('aiPromptSend');
+            if (btn) btn.click();
+        }
+    });
 
+    // Profile button – opens contact profile
     const openProfileBtn = document.getElementById('openProfileBtn');
-    if (openProfileBtn) {
-        openProfileBtn.addEventListener('click', () => {
-            const peer = activeChatPeer;
-            if (!peer) { showToast('No active chat'); return; }
-            if (typeof openContactProfile === 'function') openContactProfile(peer);
-            else {
-                if (document.getElementById('chatView')?.classList.contains('open')) closeChat();
-                switchTab('me');
-            }
-        });
-    }
+    if (openProfileBtn) openProfileBtn.addEventListener('click', () => {
+        const peer = activeChatPeer;
+        if (!peer) { showToast('No active chat'); return; }
+        if (typeof openContactProfile === 'function') openContactProfile(peer);
+        else {
+            if (document.getElementById('chatView')?.classList.contains('open')) closeChat();
+            switchTab('me');
+        }
+    });
 
+    // AI Suggestion chip – summarise current chat
     const aiSuggestion = document.getElementById('aiSuggestion');
     if (aiSuggestion) aiSuggestion.addEventListener('click', summarizeCurrentChat);
 
+    // Footer tabs
     document.querySelectorAll('.list-footer .tab').forEach(tab => {
         tab.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
@@ -1747,6 +1776,7 @@ function setupEventListeners() {
         }
     });
 
+    // Call screen buttons
     document.getElementById('hangupCallBtn')?.addEventListener('click', () => {
         if (window.PremCall) PremCall.hangup();
         if (window.vibrate) vibrate(15);
@@ -1786,6 +1816,10 @@ function setupEventListeners() {
         showToast('Call declined');
     });
 
+    // Refresh connection button
+    document.getElementById('refreshConnectionBtn')?.addEventListener('click', refreshConnection);
+
+    // About
     const aboutBtn = document.getElementById('aboutBtn');
     if (aboutBtn) aboutBtn.addEventListener('click', () => toggleAboutPanel(true));
     const aboutClose = document.getElementById('aboutClose');
@@ -1861,3 +1895,5 @@ window.renderMessages = renderMessages;
 window.sendMessage = sendMessage;
 window.handleAttachFiles = handleAttachFiles;
 window.initCallSignaling = initCallSignaling;
+window.initCallLogSync = initCallLogSync;
+window.refreshConnection = refreshConnection;
