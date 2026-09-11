@@ -1,99 +1,136 @@
 // ============================================================
-// js/fileTransfer.js
-// Chunked PeerJS file transfer (16 KB chunks) – works with PeerJS DataConnection
-// Exposes: window.FileTransfer
+// js/mediaStorage.js
+// IndexedDB blob storage for Sandesai media (images, video, PDF…)
+// Exposes: window.MediaStore
 // ============================================================
 (function (global) {
     'use strict';
 
-    const CHUNK_SIZE = 16 * 1024; // 16 KB – safe for all browsers
-    const incoming = new Map(); // fileId -> { meta, chunks[], received }
+    const DB_NAME = 'sandesaiMedia';
+    const DB_VERSION = 1;
+    const STORE = 'media';
+    let _db = null;
 
-    // ---- Sender side ----
-    async function sendFileOverDataChannel(conn, file, chatId, messageId, onProgress) {
-        if (!conn || !conn.open) throw new Error('DataConnection not open');
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-        const fileId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
-
-        // 1) metadata
-        conn.send({
-            type: 'sandesai-file-meta',
-            fileId, chatId, messageId,
-            fileName: file.name, mimeType: file.type || 'application/octet-stream',
-            size: file.size, totalChunks
-        });
-
-        // 2) chunks (arraybuffer)
-        for (let i = 0; i < totalChunks; i++) {
-            const start = i * CHUNK_SIZE;
-            const end = Math.min(start + CHUNK_SIZE, file.size);
-            const buf = await file.slice(start, end).arrayBuffer();
-            conn.send({ type: 'sandesai-file-chunk', fileId, chunkIndex: i, data: buf });
-            if (onProgress) onProgress(i + 1, totalChunks);
-            // small yield to avoid blocking UI
-            if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
-        }
-
-        // 3) done
-        conn.send({ type: 'sandesai-file-end', fileId });
-        return fileId;
-    }
-
-    // ---- Receiver side ----
-    // Call this from conn.on('data', data => { if (FileTransfer.handleIncoming(data)) return; ... })
-    // Returns true if the data packet was a file-transfer packet (handled).
-    function handleIncoming(data) {
-        if (!data || !data.type || !data.type.startsWith('sandesai-file-')) return false;
-
-        if (data.type === 'sandesai-file-meta') {
-            incoming.set(data.fileId, {
-                meta: data,
-                chunks: new Array(data.totalChunks),
-                received: 0
-            });
-            return true;
-        }
-
-        if (data.type === 'sandesai-file-chunk') {
-            const st = incoming.get(data.fileId);
-            if (!st) return true;
-            st.chunks[data.chunkIndex] = data.data;
-            st.received++;
-            return true;
-        }
-
-        if (data.type === 'sandesai-file-end') {
-            const st = incoming.get(data.fileId);
-            if (!st) return true;
-            const { meta, chunks } = st;
-            incoming.delete(data.fileId);
-
-            try {
-                const blob = new Blob(chunks, { type: meta.mimeType });
-                const file = new File([blob], meta.fileName, { type: meta.mimeType });
-
-                if (global.MediaStore) {
-                    global.MediaStore.saveMediaFile(file, meta.chatId, meta.messageId)
-                        .then(mediaId => {
-                            console.log('📥 Received file saved, mediaId =', mediaId);
-                            // Notify anyone listening (script.js can subscribe)
-                            global.dispatchEvent(new CustomEvent('sandesai:file-received', {
-                                detail: { mediaId, meta, file }
-                            }));
-                        })
-                        .catch(err => console.error('Save received file failed:', err));
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            if (_db) return resolve(_db);
+            const req = indexedDB.open(DB_NAME, DB_VERSION);
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => { _db = req.result; resolve(_db); };
+            req.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE)) {
+                    const store = db.createObjectStore(STORE, { keyPath: 'mediaId' });
+                    store.createIndex('chatId', 'chatId', { unique: false });
+                    store.createIndex('messageId', 'messageId', { unique: false });
                 }
-            } catch (e) {
-                console.error('File reassembly failed:', e);
-            }
-            return true;
-        }
-        return true;
+            };
+        });
     }
 
-    global.FileTransfer = {
-        CHUNK_SIZE,
-        sendFileOverDataChannel,
-        handleIncoming
+    async function saveMediaFile(file, chatId, messageId) {
+        const db = await openDB();
+        const mediaId = 'media_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
+        const record = {
+            mediaId, chatId: chatId || '', messageId: messageId || '',
+            blob: file,
+            fileName: file.name || 'unnamed',
+            mimeType: file.type || 'application/octet-stream',
+            size: file.size,
+            createdAt: new Date().toISOString()
+        };
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).add(record);
+            req.onsuccess = () => resolve(mediaId);
+            req.onerror = () => {
+                if (req.error && req.error.name === 'QuotaExceededError') {
+                    reject(new Error('Storage quota exceeded. Free up space and retry.'));
+                } else reject(req.error);
+            };
+        });
+    }
+
+    async function getMedia(mediaId) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readonly');
+            const req = tx.objectStore(STORE).get(mediaId);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function deleteMedia(mediaId) {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            const req = tx.objectStore(STORE).delete(mediaId);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function createMediaURL(mediaId) {
+        const rec = await getMedia(mediaId);
+        if (!rec) throw new Error('Media not found: ' + mediaId);
+        return URL.createObjectURL(rec.blob);
+    }
+
+    function revokeMediaURL(url) {
+        if (url && typeof url === 'string' && url.startsWith('blob:')) {
+            try { URL.revokeObjectURL(url); } catch (e) {}
+        }
+    }
+
+    // Render a small inline preview element based on mimeType
+    async function renderMediaElement(mediaId, opts) {
+        const rec = await getMedia(mediaId);
+        if (!rec) return null;
+        const url = URL.createObjectURL(rec.blob);
+        const mt = rec.mimeType || '';
+        let el;
+        if (mt.startsWith('image/')) {
+            el = document.createElement('img');
+            el.src = url;
+            el.style.cssText = 'max-width:100%;border-radius:10px;display:block;';
+            el.onload = () => revokeMediaURL(url);
+        } else if (mt.startsWith('video/')) {
+            el = document.createElement('video');
+            el.src = url; el.controls = true;
+            el.style.cssText = 'max-width:100%;border-radius:10px;display:block;';
+            el.onloadeddata = () => {}; // keep URL alive while playing
+        } else if (mt.startsWith('audio/')) {
+            el = document.createElement('audio');
+            el.src = url; el.controls = true;
+            el.style.cssText = 'width:100%;';
+        } else {
+            el = document.createElement('a');
+            el.href = url;
+            el.download = rec.fileName || 'file';
+            el.textContent = '📎 ' + (rec.fileName || 'Download') +
+                ' (' + Math.round((rec.size || 0) / 1024) + ' KB)';
+            el.style.cssText = 'color:#a78bfa;text-decoration:underline;font-size:0.85rem;';
+        }
+        return { el, url, record: rec };
+    }
+
+    async function estimateQuota() {
+        if (!navigator.storage || !navigator.storage.estimate) return null;
+        try { return await navigator.storage.estimate(); } catch (e) { return null; }
+    }
+
+    global.MediaStore = {
+        saveMediaFile,
+        getMedia,
+        deleteMedia,
+        createMediaURL,
+        revokeMediaURL,
+        renderMediaElement,
+        estimateQuota,
+        _openDB: openDB
     };
-})(window);
+
+    // ensure DB is ready as soon as possible
+    openDB().then(() => console.log('📦 MediaStore ready')).catch(e => console.warn('MediaStore init failed', e));
+})(window); 
