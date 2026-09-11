@@ -1,127 +1,99 @@
-// js/mediaStorage.js
-const DB_NAME = 'sandesaiMedia';
-const DB_VERSION = 1;
-const STORE_NAME = 'media';
+// ============================================================
+// js/fileTransfer.js
+// Chunked PeerJS file transfer (16 KB chunks) – works with PeerJS DataConnection
+// Exposes: window.FileTransfer
+// ============================================================
+(function (global) {
+    'use strict';
 
-let db = null;
+    const CHUNK_SIZE = 16 * 1024; // 16 KB – safe for all browsers
+    const incoming = new Map(); // fileId -> { meta, chunks[], received }
 
-/**
- * Initialize IndexedDB. Call once at app startup.
- * @returns {Promise<IDBDatabase>}
- */
-export function initMediaStorage() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    // ---- Sender side ----
+    async function sendFileOverDataChannel(conn, file, chatId, messageId, onProgress) {
+        if (!conn || !conn.open) throw new Error('DataConnection not open');
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const fileId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      db = request.result;
-      resolve(db);
+        // 1) metadata
+        conn.send({
+            type: 'sandesai-file-meta',
+            fileId, chatId, messageId,
+            fileName: file.name, mimeType: file.type || 'application/octet-stream',
+            size: file.size, totalChunks
+        });
+
+        // 2) chunks (arraybuffer)
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const buf = await file.slice(start, end).arrayBuffer();
+            conn.send({ type: 'sandesai-file-chunk', fileId, chunkIndex: i, data: buf });
+            if (onProgress) onProgress(i + 1, totalChunks);
+            // small yield to avoid blocking UI
+            if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
+        }
+
+        // 3) done
+        conn.send({ type: 'sandesai-file-end', fileId });
+        return fileId;
+    }
+
+    // ---- Receiver side ----
+    // Call this from conn.on('data', data => { if (FileTransfer.handleIncoming(data)) return; ... })
+    // Returns true if the data packet was a file-transfer packet (handled).
+    function handleIncoming(data) {
+        if (!data || !data.type || !data.type.startsWith('sandesai-file-')) return false;
+
+        if (data.type === 'sandesai-file-meta') {
+            incoming.set(data.fileId, {
+                meta: data,
+                chunks: new Array(data.totalChunks),
+                received: 0
+            });
+            return true;
+        }
+
+        if (data.type === 'sandesai-file-chunk') {
+            const st = incoming.get(data.fileId);
+            if (!st) return true;
+            st.chunks[data.chunkIndex] = data.data;
+            st.received++;
+            return true;
+        }
+
+        if (data.type === 'sandesai-file-end') {
+            const st = incoming.get(data.fileId);
+            if (!st) return true;
+            const { meta, chunks } = st;
+            incoming.delete(data.fileId);
+
+            try {
+                const blob = new Blob(chunks, { type: meta.mimeType });
+                const file = new File([blob], meta.fileName, { type: meta.mimeType });
+
+                if (global.MediaStore) {
+                    global.MediaStore.saveMediaFile(file, meta.chatId, meta.messageId)
+                        .then(mediaId => {
+                            console.log('📥 Received file saved, mediaId =', mediaId);
+                            // Notify anyone listening (script.js can subscribe)
+                            global.dispatchEvent(new CustomEvent('sandesai:file-received', {
+                                detail: { mediaId, meta, file }
+                            }));
+                        })
+                        .catch(err => console.error('Save received file failed:', err));
+                }
+            } catch (e) {
+                console.error('File reassembly failed:', e);
+            }
+            return true;
+        }
+        return true;
+    }
+
+    global.FileTransfer = {
+        CHUNK_SIZE,
+        sendFileOverDataChannel,
+        handleIncoming
     };
-
-    request.onupgradeneeded = (event) => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'mediaId' });
-        store.createIndex('chatId', 'chatId', { unique: false });
-        store.createIndex('messageId', 'messageId', { unique: false });
-      }
-    };
-  });
-}
-
-/**
- * Save a File/Blob to IndexedDB.
- * @param {File|Blob} file
- * @param {string} chatId
- * @param {string} messageId
- * @returns {Promise<string>} mediaId
- */
-export function saveMediaFile(file, chatId, messageId) {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Media DB not initialized'));
-
-    const mediaId = `media_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-
-    const record = {
-      mediaId,
-      chatId,
-      messageId,
-      blob: file,
-      fileName: file.name || 'unnamed',
-      mimeType: file.type || 'application/octet-stream',
-      size: file.size,
-      createdAt: new Date().toISOString()
-    };
-
-    const request = store.add(record);
-
-    request.onsuccess = () => resolve(mediaId);
-    request.onerror = () => {
-      if (request.error.name === 'QuotaExceededError') {
-        reject(new Error('Storage quota exceeded. Please free up space.'));
-      } else {
-        reject(request.error);
-      }
-    };
-  });
-}
-
-/**
- * Retrieve a media record by mediaId.
- * @param {string} mediaId
- * @returns {Promise<Object|null>}
- */
-export function getMedia(mediaId) {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Media DB not initialized'));
-
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.get(mediaId);
-
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/**
- * Delete a media record.
- * @param {string} mediaId
- * @returns {Promise<void>}
- */
-export function deleteMedia(mediaId) {
-  return new Promise((resolve, reject) => {
-    if (!db) return reject(new Error('Media DB not initialized'));
-
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.delete(mediaId);
-
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/**
- * Create an object URL for a media blob.
- * @param {string} mediaId
- * @returns {Promise<string>} objectURL
- */
-export async function createMediaURL(mediaId) {
-  const record = await getMedia(mediaId);
-  if (!record) throw new Error('Media not found');
-  return URL.createObjectURL(record.blob);
-}
-
-/**
- * Revoke an object URL to free memory.
- * @param {string} url
- */
-export function revokeMediaURL(url) {
-  if (url && url.startsWith('blob:')) {
-    URL.revokeObjectURL(url);
-  }
-}
+})(window);
