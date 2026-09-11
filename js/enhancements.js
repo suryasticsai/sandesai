@@ -1,6 +1,7 @@
 // ================================================================
 // js/enhancements.js
 // Adds NEW features on top of script.js without touching it:
+//   • First-run registration gate (hides app until registered)
 //   • Invite links (long URL — no external APIs)
 //   • Share invite to any app (no duplicate URL)
 //   • Deep link handler for ?join=TOKEN
@@ -14,6 +15,9 @@
     // ── Constants ──
     const INVITE_SECRET = 'sandesai-invite-v1-2026';
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+    // Did the initial URL contain an invite?
+    let bootHadInvite = false;
 
     // ────────────────────────────────────────────────────────────
     // 1. INVITE TOKEN HELPERS
@@ -70,15 +74,12 @@
         const senderName = userData.name || 'Someone';
 
         const token = createInviteToken({
-            from: me,
-            to: peer,
-            chat: peer,
-            name: senderName,
+            from: me, to: peer, chat: peer, name: senderName,
         });
         const url = buildInviteURL(token);
 
-        // IMPORTANT: only `text`, no `url:` — the URL is inside `text`
-        // Passing both causes the duplicate the user was seeing.
+        // NOTE: only `text` — URL is inside it. Passing `url:` too
+        // causes a duplicate URL in some share targets.
         const text =
             `👋 ${senderName} invited you to Sandesai.\n\n` +
             `Tap to open the chat:\n${url}`;
@@ -93,13 +94,11 @@
             }
         }
 
-        // Fallback: SMS app
         const isAndroid = /Android/i.test(navigator.userAgent);
         const smsHref = isAndroid
             ? `sms:${peer}?body=${encodeURIComponent(text)}`
             : `sms:${peer}&body=${encodeURIComponent(text)}`;
 
-        // Fallback: clipboard
         if (navigator.clipboard) {
             try {
                 await navigator.clipboard.writeText(text);
@@ -118,10 +117,7 @@
         const senderName = userData.name || 'Someone';
 
         const token = createInviteToken({
-            from: me,
-            to: '',
-            chat: me,
-            name: senderName,
+            from: me, to: '', chat: me, name: senderName,
         });
         const url = buildInviteURL(token);
         const text = `👋 Join me on Sandesai — a messenger with AI superpowers!\n\n${url}`;
@@ -492,13 +488,357 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 9. BOOT — handle invite link on load
+    // 9. 🆕 FIRST-RUN REGISTRATION GATE
+    //    If user hasn't registered → show a full-screen signup card
+    //    and hide everything else. Invite flows bypass this.
     // ────────────────────────────────────────────────────────────
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => setTimeout(handleInviteFromURL, 700));
-    } else {
-        setTimeout(handleInviteFromURL, 700);
+    function isRegistered() {
+        return !!localStorage.getItem('premCallRegisteredAt') &&
+               localStorage.getItem('premCallVerified') === 'true' &&
+               !!localStorage.getItem('premCallNumber');
     }
 
-    console.log('✨ enhancements.js loaded — invite, refresh, sync, profiles');
+    function showBootRegistrationScreen() {
+        if (document.getElementById('bootRegScreen')) return;
+        if (document.getElementById('inviteWelcomeOverlay')) return;
+
+        // Inject animation keyframes once
+        if (!document.getElementById('bootRegStyles')) {
+            const style = document.createElement('style');
+            style.id = 'bootRegStyles';
+            style.textContent = `
+                @keyframes bootCardIn {
+                    from { opacity: 0; transform: translateY(24px) scale(0.98); }
+                    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+                }
+                #bootRegScreen input:focus {
+                    border-color: rgba(139,92,246,0.5) !important;
+                    background: rgba(255,255,255,0.06) !important;
+                }
+                #bootRegScreen button:active { transform: scale(0.97); }
+            `;
+            document.head.appendChild(style);
+        }
+
+        const screen = document.createElement('div');
+        screen.id = 'bootRegScreen';
+        screen.style.cssText = `
+            position: fixed; inset: 0; z-index: 100000;
+            background: #07050e;
+            overflow-y: auto;
+            padding: 32px 24px;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            color: #eef0f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        `;
+
+        // Ambient gradient layers
+        const bg = document.createElement('div');
+        bg.style.cssText = `
+            position: fixed; inset: 0; z-index: -1;
+            background:
+                radial-gradient(circle at 20% 15%, rgba(139,92,246,0.20), transparent 55%),
+                radial-gradient(circle at 80% 85%, rgba(110,231,255,0.15), transparent 55%),
+                radial-gradient(circle at 50% 50%, rgba(124,58,237,0.08), transparent 70%);
+            pointer-events: none;
+        `;
+        screen.appendChild(bg);
+
+        const card = document.createElement('div');
+        card.style.cssText = `
+            max-width: 400px; width: 100%;
+            margin: auto 0;
+            background: rgba(18, 16, 36, 0.88);
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            border-radius: 28px;
+            padding: 36px 28px 28px;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.7);
+            animation: bootCardIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        `;
+
+        card.innerHTML = `
+            <!-- Logo + brand -->
+            <div style="text-align:center; margin-bottom:28px;">
+                <img src="sandesai-logo.png" alt="Sandesai"
+                     style="width:88px; height:88px; border-radius:50%;
+                            margin:0 auto 14px; display:block;
+                            border:2px solid rgba(139,92,246,0.3);
+                            box-shadow: 0 0 60px rgba(139,92,246,0.4),
+                                        0 0 100px rgba(110,231,255,0.15);" />
+                <div style="font-size:1.75rem; font-weight:700; letter-spacing:-0.02em;
+                            background: linear-gradient(135deg,#a78bfa,#6ee7ff);
+                            -webkit-background-clip: text;
+                            -webkit-text-fill-color: transparent;
+                            background-clip: text;">
+                    Sandesai
+                </div>
+                <div style="font-size:0.85rem; color:#7a89a8; margin-top:6px;">
+                    Sign up to get started
+                </div>
+            </div>
+
+            <!-- Form -->
+            <div style="display:flex; flex-direction:column; gap:14px;">
+
+                <div>
+                    <label style="font-size:0.72rem; color:#7a89a8;
+                                  text-transform:uppercase; letter-spacing:0.06em;
+                                  display:block; margin-bottom:6px; font-weight:500;">
+                        Name
+                    </label>
+                    <input id="bootRegName" type="text" placeholder="Your name"
+                           autocomplete="name"
+                           style="width:100%; padding:13px 16px;
+                                  border-radius:14px;
+                                  border:1px solid rgba(255,255,255,0.08);
+                                  background:rgba(255,255,255,0.04);
+                                  color:#eef0f5; font-size:16px;
+                                  outline:none; font-family:inherit;
+                                  transition:border-color 0.2s, background 0.2s;" />
+                </div>
+
+                <div>
+                    <label style="font-size:0.72rem; color:#7a89a8;
+                                  text-transform:uppercase; letter-spacing:0.06em;
+                                  display:block; margin-bottom:6px; font-weight:500;">
+                        Username
+                    </label>
+                    <input id="bootRegUserid" type="text" placeholder="Choose a unique ID"
+                           autocomplete="username"
+                           style="width:100%; padding:13px 16px;
+                                  border-radius:14px;
+                                  border:1px solid rgba(255,255,255,0.08);
+                                  background:rgba(255,255,255,0.04);
+                                  color:#eef0f5; font-size:16px;
+                                  outline:none; font-family:inherit;
+                                  transition:border-color 0.2s, background 0.2s;" />
+                </div>
+
+                <div>
+                    <label style="font-size:0.72rem; color:#7a89a8;
+                                  text-transform:uppercase; letter-spacing:0.06em;
+                                  display:block; margin-bottom:6px; font-weight:500;">
+                        Phone Number
+                    </label>
+                    <input id="bootRegPhone" type="tel" placeholder="10-digit number"
+                           maxlength="10" inputmode="numeric" autocomplete="tel"
+                           style="width:100%; padding:13px 16px;
+                                  border-radius:14px;
+                                  border:1px solid rgba(255,255,255,0.08);
+                                  background:rgba(255,255,255,0.04);
+                                  color:#eef0f5; font-size:16px;
+                                  outline:none; font-family:inherit;
+                                  transition:border-color 0.2s, background 0.2s;" />
+                </div>
+
+                <div>
+                    <label style="font-size:0.72rem; color:#7a89a8;
+                                  text-transform:uppercase; letter-spacing:0.06em;
+                                  display:block; margin-bottom:6px; font-weight:500;">
+                        OTP
+                    </label>
+                    <div style="display:flex; gap:8px;">
+                        <input id="bootRegOtp" type="text" placeholder="Enter OTP"
+                               inputmode="numeric" maxlength="6"
+                               style="flex:1; min-width:0;
+                                      padding:13px 16px;
+                                      border-radius:14px;
+                                      border:1px solid rgba(255,255,255,0.08);
+                                      background:rgba(255,255,255,0.04);
+                                      color:#eef0f5; font-size:16px;
+                                      outline:none; font-family:inherit;
+                                      transition:border-color 0.2s, background 0.2s;" />
+                        <button id="bootRegSendOtp" type="button"
+                                style="padding:13px 18px; border-radius:14px;
+                                       border:1px solid rgba(139,92,246,0.25);
+                                       background:rgba(139,92,246,0.12);
+                                       color:#a78bfa; font-weight:600;
+                                       font-size:0.8rem; cursor:pointer;
+                                       white-space:nowrap; font-family:inherit;
+                                       transition:background 0.2s, transform 0.1s;">
+                            Send OTP
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Register button -->
+            <button id="bootRegSubmit" type="button"
+                    style="width:100%; padding:15px; border-radius:16px; border:none;
+                           background:linear-gradient(135deg,#7c3aed,#6d28d9);
+                           color:#fff; font-weight:700; font-size:1rem;
+                           cursor:pointer; font-family:inherit; margin-top:22px;
+                           box-shadow: 0 8px 24px rgba(139,92,246,0.35);
+                           transition:transform 0.1s, box-shadow 0.2s;">
+                Register
+            </button>
+
+            <div style="margin-top:16px; text-align:center;
+                        font-size:0.7rem; color:#5a6885; line-height:1.5;">
+                By registering you agree to Sandesai's terms<br />and privacy policy.
+            </div>
+        `;
+        screen.appendChild(card);
+        document.body.appendChild(screen);
+
+        // ── Wire up Send OTP ──
+        document.getElementById('bootRegSendOtp').addEventListener('click', () => {
+            const phone = document.getElementById('bootRegPhone').value.trim();
+            if (!phone || !/^\d{10}$/.test(phone)) {
+                window.showToast && showToast('Please enter a valid 10-digit number');
+                return;
+            }
+            window.showToast && showToast(`📱 OTP sent to ${phone} (Demo: 1234)`);
+            document.getElementById('bootRegOtp').value = '1234';
+        });
+
+        // ── Wire up Register ──
+        const submitBtn = document.getElementById('bootRegSubmit');
+        submitBtn.addEventListener('click', async () => {
+            const name = document.getElementById('bootRegName').value.trim();
+            const userid = document.getElementById('bootRegUserid').value.trim();
+            const phone = document.getElementById('bootRegPhone').value.trim();
+            const otp = document.getElementById('bootRegOtp').value.trim();
+
+            if (!name)   { window.showToast && showToast('Please enter your name'); return; }
+            if (!userid) { window.showToast && showToast('Please choose a username'); return; }
+            if (!phone || !/^\d{10}$/.test(phone)) {
+                window.showToast && showToast('Please enter a valid 10-digit number');
+                return;
+            }
+            if (!otp) { window.showToast && showToast('Please enter the OTP'); return; }
+            if (otp !== '1234') {
+                window.showToast && showToast('Invalid OTP. Use 1234 (demo)');
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.7';
+            submitBtn.textContent = 'Registering…';
+
+            await completeBootRegistration({ name, userid, phone });
+        });
+
+        // Enter key submits
+        document.getElementById('bootRegOtp').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitBtn.click();
+        });
+
+        // Auto-focus name
+        setTimeout(() => document.getElementById('bootRegName')?.focus(), 400);
+    }
+
+    async function completeBootRegistration({ name, userid, phone }) {
+        const userData = { name, userid, phone, registered: true, status: 'online' };
+
+        localStorage.setItem('neonUser', JSON.stringify(userData));
+        localStorage.setItem('premCallNumber', phone);
+        localStorage.setItem('premCallVerified', 'true');
+        localStorage.setItem('premCallRegisteredAt', String(Date.now()));
+
+        // Init PeerJS with the real phone number
+        if (window.PremCall) {
+            try {
+                if (window.PremCall.reinit) window.PremCall.reinit(phone);
+                else window.PremCall.init(phone);
+            } catch (e) { console.warn('PremCall init failed:', e); }
+        }
+
+        // Init Firebase if not already
+        if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') {
+            window.initFirebaseMessaging();
+        }
+
+        // Publish profile + start sync
+        setTimeout(() => {
+            if (window.db && phone) {
+                window.db.collection('profiles').doc(phone).set({
+                    phone, name, username: userid, updatedAt: Date.now()
+                }, { merge: true }).catch(() => {});
+            }
+            if (typeof window.initCallSignaling === 'function') window.initCallSignaling();
+            if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
+        }, 1200);
+
+        // Update visible bits
+        const mn = document.getElementById('myNumberDisplay');
+        if (mn) mn.textContent = phone;
+        const dot = document.getElementById('headerStatusDot');
+        if (dot) dot.className = 'status-dot connecting';
+        if (typeof window.updateStatusBadge === 'function') window.updateStatusBadge(userData);
+        if (typeof window.renderProfileView === 'function') window.renderProfileView();
+        const link = document.querySelector('.registration-link');
+        if (link) link.style.display = 'none';
+
+        // Fade out the boot screen
+        const screen = document.getElementById('bootRegScreen');
+        if (screen) {
+            screen.style.transition = 'opacity 0.45s ease';
+            screen.style.opacity = '0';
+            setTimeout(() => screen.remove(), 500);
+        }
+
+        window.showToast && showToast('✅ Welcome to Sandesai, ' + name + '!');
+
+        // Refresh lists
+        setTimeout(() => {
+            if (typeof window.renderChatList === 'function') window.renderChatList();
+            if (typeof window.renderCallList === 'function') window.renderCallList();
+        }, 600);
+    }
+
+    function bootRegistrationGate() {
+        // Skip if invite overlay is showing — invite flow handles registration
+        if (document.getElementById('inviteWelcomeOverlay')) return;
+
+        // Skip if already registered
+        if (isRegistered()) return;
+
+        // If we came in via invite link, wait for the invite handler to finish
+        if (bootHadInvite) {
+            // Give invite handler time to auto-register or show its overlay
+            setTimeout(() => {
+                if (document.getElementById('inviteWelcomeOverlay')) return;
+                if (isRegistered()) return;
+                showBootRegistrationScreen();
+            }, 1500);
+            return;
+        }
+
+        showBootRegistrationScreen();
+    }
+
+    window.showBootRegistrationScreen = showBootRegistrationScreen;
+    window.completeBootRegistration = completeBootRegistration;
+
+    // ────────────────────────────────────────────────────────────
+    // 10. BOOT — handle invite link + registration gate
+    // ────────────────────────────────────────────────────────────
+    function onBoot() {
+        const params = new URLSearchParams(location.search);
+        bootHadInvite = params.has('join') || params.has('invite');
+
+        // Give script.js/app.js time to fully initialise
+        setTimeout(() => {
+            handleInviteFromURL();
+        }, 700);
+
+        // Registration gate runs a bit later (after invite handling)
+        setTimeout(() => {
+            bootRegistrationGate();
+        }, 1300);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', onBoot);
+    } else {
+        onBoot();
+    }
+
+    console.log('✨ enhancements.js loaded — boot gate, invite, refresh, sync, profiles');
 })();
