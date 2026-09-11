@@ -8,6 +8,9 @@
     const RAGINA_NUMBER = '0000000000';
     const API_URL = 'https://ragina-crawler-ragina.vercel.app/api/ask';
 
+    // Reference to file-transfer module (js/fileTransfer.js) — loaded before app.js
+    const FileTransfer = global.FileTransfer || null;
+
     let peer = null;
     let myNumber = null;
     let activeCall = null;
@@ -33,6 +36,10 @@
     let ringtoneTimer = null;
     let ttsVoices = [];
     let speechUnlocked = false;
+
+    // ── File transfer state ──
+    let activeDataConn = null;   // PeerJS DataConnection used for chunked file transfer
+    let fileSendQueue = [];      // queued files waiting for the DataConnection to open
 
     let actx = null;
 
@@ -357,9 +364,15 @@
         stopRingtone();
     }
 
+    // ══════════════════════════════════════════════════════════
+    //  wireCallEvents — now ALSO opens a DataConnection for
+    //  chunked file transfer (images, video, PDFs, etc.)
+    // ══════════════════════════════════════════════════════════
     function wireCallEvents(call) {
         activeCall = call;
         inCall = true;
+
+        // ─────────── Media stream ───────────
         call.on('stream', stream => {
             const ra = document.getElementById('remoteAudio');
             if (ra) {
@@ -378,6 +391,61 @@
             if (!timerInterval) startTimer();
             startLiveTranscription();
         });
+
+        // ─────────── NEW: Data channel for file transfer ───────────
+        // PeerJS media calls don't carry data packets, so open a side
+        // DataConnection to the same peer. `sandesai-file-*` packets
+        // flow through FileTransfer.handleIncoming().
+        if (peer && call && call.peer && call.peer !== RAGINA_NUMBER) {
+            try {
+                const conn = peer.connect(call.peer, {
+                    reliable: true,
+                    serialization: 'binary'   // required for ArrayBuffer chunks
+                });
+
+                conn.on('open', () => {
+                    activeDataConn = conn;
+                    console.log('📡 File-transfer DataConnection open with', call.peer);
+
+                    // Flush any queued files (user attached before DC was ready)
+                    const q = fileSendQueue.slice();
+                    fileSendQueue = [];
+                    if (FileTransfer) {
+                        q.forEach(item => {
+                            FileTransfer
+                                .sendFileOverDataChannel(
+                                    conn, item.file, item.chatId, item.messageId, item.onProgress
+                                )
+                                .catch(err => console.warn('Queued file send failed:', err));
+                        });
+                    }
+                });
+
+                conn.on('data', (data) => {
+                    // 1) File-transfer packet?
+                    if (FileTransfer && FileTransfer.handleIncoming(data)) return;
+
+                    // 2) Optional: plain chat text over data channel
+                    if (data && data.type === 'chat-text') {
+                        console.log('💬 Data-channel chat:', data.text);
+                    }
+                });
+
+                conn.on('close', () => {
+                    console.log('📡 DataConnection closed');
+                    if (activeDataConn === conn) activeDataConn = null;
+                });
+
+                conn.on('error', (err) => {
+                    console.warn('DataConnection error:', err);
+                    if (activeDataConn === conn) activeDataConn = null;
+                });
+            } catch (e) {
+                console.warn('Could not open DataConnection:', e);
+            }
+        }
+
+        // ─────────── Close / error ───────────
         call.on('close', () => endPeerCall());
         call.on('error', () => endPeerCall());
     }
@@ -411,6 +479,14 @@
 
     function endPeerCall() {
         if (activeCall) { try { activeCall.close(); } catch (e) {} }
+
+        // ── Close the file-transfer DataConnection too ──
+        if (activeDataConn) {
+            try { activeDataConn.close(); } catch (e) {}
+            activeDataConn = null;
+        }
+        fileSendQueue = [];
+
         if (!inCall) return;
         activeCall = null;
         inCall = false;
@@ -471,6 +547,26 @@
             if (inCall || raginaCallActive) { call.close(); return; }
             incomingCall = call;
             showIncomingOverlay(call.peer);
+        });
+
+        // ── Also accept incoming DataConnections from peers who aren't on a call ──
+        // (so files can be sent even before/after a call)
+        peer.on('connection', conn => {
+            conn.on('open', () => {
+                if (!activeDataConn) {
+                    activeDataConn = conn;
+                    console.log('📡 Incoming DataConnection accepted from', conn.peer);
+                }
+            });
+            conn.on('data', (data) => {
+                if (FileTransfer && FileTransfer.handleIncoming(data)) return;
+            });
+            conn.on('close', () => {
+                if (activeDataConn === conn) activeDataConn = null;
+            });
+            conn.on('error', () => {
+                if (activeDataConn === conn) activeDataConn = null;
+            });
         });
     }
 
@@ -752,7 +848,7 @@
                     peer = new global.Peer(num, { debug: 0 });
                     attachPeerHandlers();
                     const dot = document.getElementById('headerStatusDot');
-                    if (dot) dot.className = 'status-dot connecting';
+                    if (dot) dot.className = 'status-connecting';
                 } catch (e) {
                     console.warn('Peer init failed:', e);
                 }
@@ -834,6 +930,45 @@
         },
 
         isInCall: () => inCall || raginaCallActive,
+
+        // ─── NEW: send a file (saves locally + sends over DataConnection) ───
+        sendFile: function(file, chatId, onProgress) {
+            if (!file) return Promise.reject(new Error('No file'));
+
+            const targetChat = chatId
+                || (typeof global.activeChatPeer !== 'undefined' && global.activeChatPeer)
+                || (activeCall && activeCall.peer)
+                || null;
+
+            const messageId = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
+            // Always save locally first so the sender can preview
+            const localSave = global.MediaStore
+                ? global.MediaStore.saveMediaFile(file, targetChat, messageId)
+                    .catch(err => { console.warn('Local save failed:', err); return null; })
+                : Promise.resolve(null);
+
+            // If DC is not ready but we're on a call, queue it
+            if (!activeDataConn || !activeDataConn.open) {
+                if (activeCall && activeCall.peer) {
+                    fileSendQueue.push({ file, chatId: targetChat, messageId, onProgress });
+                    return localSave.then(() => ({ queued: true, messageId }));
+                }
+                return localSave.then(() => Promise.reject(new Error('No active DataConnection')));
+            }
+
+            if (!FileTransfer) {
+                return localSave.then(() => Promise.reject(new Error('FileTransfer module missing')));
+            }
+
+            return localSave.then(() =>
+                FileTransfer.sendFileOverDataChannel(
+                    activeDataConn, file, targetChat, messageId, onProgress
+                )
+            );
+        },
+
+        getActiveDataConn: function() { return activeDataConn; },
 
         checkStatus: function(number) {
             return new Promise(resolve => {
@@ -953,4 +1088,4 @@
         if (!lastLog) lastLog = getLogs().find(l => l.messages && l.messages.length) || null;
     })();
 
-})(window);
+})(window); 
