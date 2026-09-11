@@ -2361,3 +2361,6 @@ body.neon-mode .ai-btn:hover {
         display: none;
     }
 }
+/* Refresh button spin */
+.spinning i { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
