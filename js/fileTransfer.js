@@ -1,97 +1,99 @@
+// ============================================================
 // js/fileTransfer.js
-const CHUNK_SIZE = 16 * 1024; // 16 KB
+// Chunked PeerJS file transfer (16 KB chunks) – works with PeerJS DataConnection
+// Exposes: window.FileTransfer
+// ============================================================
+(function (global) {
+    'use strict';
 
-/**
- * Send a file over a PeerJS DataConnection in chunks.
- * @param {DataConnection} conn - PeerJS connection
- * @param {File} file
- * @param {string} chatId
- * @param {string} messageId
- * @param {function} onProgress - (sent, total) => void
- */
-export async function sendFileOverDataChannel(conn, file, chatId, messageId, onProgress) {
-  if (!conn || !conn.open) throw new Error('DataConnection not open');
+    const CHUNK_SIZE = 16 * 1024; // 16 KB – safe for all browsers
+    const incoming = new Map(); // fileId -> { meta, chunks[], received }
 
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // ---- Sender side ----
+    async function sendFileOverDataChannel(conn, file, chatId, messageId, onProgress) {
+        if (!conn || !conn.open) throw new Error('DataConnection not open');
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const fileId = 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 9);
 
-  // 1. Send metadata
-  conn.send({
-    type: 'file-meta',
-    fileId,
-    chatId,
-    messageId,
-    fileName: file.name,
-    mimeType: file.type,
-    size: file.size,
-    totalChunks
-  });
+        // 1) metadata
+        conn.send({
+            type: 'sandesai-file-meta',
+            fileId, chatId, messageId,
+            fileName: file.name, mimeType: file.type || 'application/octet-stream',
+            size: file.size, totalChunks
+        });
 
-  // 2. Send chunks
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
-    const end = Math.min(start + CHUNK_SIZE, file.size);
-    const chunk = file.slice(start, end);
+        // 2) chunks (arraybuffer)
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const buf = await file.slice(start, end).arrayBuffer();
+            conn.send({ type: 'sandesai-file-chunk', fileId, chunkIndex: i, data: buf });
+            if (onProgress) onProgress(i + 1, totalChunks);
+            // small yield to avoid blocking UI
+            if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
+        }
 
-    const arrayBuffer = await chunk.arrayBuffer();
-    conn.send({
-      type: 'file-chunk',
-      fileId,
-      chunkIndex: i,
-      data: arrayBuffer
-    });
+        // 3) done
+        conn.send({ type: 'sandesai-file-end', fileId });
+        return fileId;
+    }
 
-    if (onProgress) onProgress(i + 1, totalChunks);
-  }
+    // ---- Receiver side ----
+    // Call this from conn.on('data', data => { if (FileTransfer.handleIncoming(data)) return; ... })
+    // Returns true if the data packet was a file-transfer packet (handled).
+    function handleIncoming(data) {
+        if (!data || !data.type || !data.type.startsWith('sandesai-file-')) return false;
 
-  // 3. Send end signal
-  conn.send({ type: 'file-end', fileId });
-}
+        if (data.type === 'sandesai-file-meta') {
+            incoming.set(data.fileId, {
+                meta: data,
+                chunks: new Array(data.totalChunks),
+                received: 0
+            });
+            return true;
+        }
 
-/**
- * Handle incoming file chunks. Call this from your conn.on('data') handler.
- * Maintains a temporary map of fileId -> { meta, chunks[] }.
- */
-const incomingFiles = new Map();
+        if (data.type === 'sandesai-file-chunk') {
+            const st = incoming.get(data.fileId);
+            if (!st) return true;
+            st.chunks[data.chunkIndex] = data.data;
+            st.received++;
+            return true;
+        }
 
-export function handleIncomingFileChunk(data) {
-  if (data.type === 'file-meta') {
-    incomingFiles.set(data.fileId, {
-      meta: data,
-      chunks: new Array(data.totalChunks),
-      received: 0
-    });
-    return;
-  }
+        if (data.type === 'sandesai-file-end') {
+            const st = incoming.get(data.fileId);
+            if (!st) return true;
+            const { meta, chunks } = st;
+            incoming.delete(data.fileId);
 
-  if (data.type === 'file-chunk') {
-    const fileState = incomingFiles.get(data.fileId);
-    if (!fileState) return;
-    fileState.chunks[data.chunkIndex] = data.data;
-    fileState.received++;
-    return;
-  }
+            try {
+                const blob = new Blob(chunks, { type: meta.mimeType });
+                const file = new File([blob], meta.fileName, { type: meta.mimeType });
 
-  if (data.type === 'file-end') {
-    const fileState = incomingFiles.get(data.fileId);
-    if (!fileState) return;
+                if (global.MediaStore) {
+                    global.MediaStore.saveMediaFile(file, meta.chatId, meta.messageId)
+                        .then(mediaId => {
+                            console.log('📥 Received file saved, mediaId =', mediaId);
+                            // Notify anyone listening (script.js can subscribe)
+                            global.dispatchEvent(new CustomEvent('sandesai:file-received', {
+                                detail: { mediaId, meta, file }
+                            }));
+                        })
+                        .catch(err => console.error('Save received file failed:', err));
+                }
+            } catch (e) {
+                console.error('File reassembly failed:', e);
+            }
+            return true;
+        }
+        return true;
+    }
 
-    // Reassemble Blob
-    const blob = new Blob(fileState.chunks, { type: fileState.meta.mimeType });
-    const file = new File([blob], fileState.meta.fileName, { type: fileState.meta.mimeType });
-
-    // Save to IndexedDB
-    import('./mediaStorage.js').then(({ saveMediaFile }) => {
-      saveMediaFile(file, fileState.meta.chatId, fileState.meta.messageId)
-        .then(mediaId => {
-          // Insert message into AlaSQL (or call your existing message handler)
-          // Example:
-          // alasql('INSERT INTO messages ...', [..., mediaId]);
-          console.log('File received and saved, mediaId:', mediaId);
-        })
-        .catch(err => console.error('Failed to save received file:', err));
-    });
-
-    incomingFiles.delete(data.fileId);
-  }
-}
+    global.FileTransfer = {
+        CHUNK_SIZE,
+        sendFileOverDataChannel,
+        handleIncoming
+    };
+})(window); 
