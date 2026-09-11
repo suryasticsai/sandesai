@@ -6,6 +6,42 @@
     <title>Sandesai · AI Messenger</title>
     <link rel="icon" type="image/png" href="sandesai-logo.png" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+    <!-- Add .desktop class ONLY on real desktops (phone "Desktop Site" mode is excluded) -->
+    <script>
+        (function () {
+            var realDesktop =
+                window.matchMedia('(min-width: 900px)').matches &&
+                window.matchMedia('(hover: hover)').matches &&
+                window.matchMedia('(pointer: fine)').matches &&
+                (navigator.maxTouchPoints || 0) === 0;
+            if (realDesktop) document.documentElement.classList.add('desktop');
+        })();
+    </script>
+
+    <link rel="stylesheet" href="style.css?v=8" />
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+
+    <!-- jQuery + Parallax + PeerJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/parallax.js/1.5.0/parallax.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+
+    <!-- RAGina Pro (in-browser RAG + voice) -->
+    <script src="https://cdn.jsdelivr.net/gh/suryasticsai/RAGina@main/ragina-t4.js"></script>
+
+    <!-- AlaSQL – in-browser SQL (used for AI conversations, media metadata) -->
+    <script src="https://cdn.jsdelivr.net/npm/alasql@4.4.0/dist/alasql.min.js"></script>
+</head>
+<body>
+
+    <!-- ===== PARALLAX BACKGROUND ===== -->
+    <div class="parallax-scene" data-parallax="scroll" data-relative-input="true"> 
         <div class="bg-layer layer-1" data-depth="0.10"></div>
         <div class="bg-layer layer-2" data-depth="0.20"></div>
         <div class="bg-layer layer-3" data-depth="0.30"></div>
@@ -29,9 +65,7 @@
                     <span id="myNumberDisplay" style="font-size:0.7rem;color:#7a89a8;cursor:pointer;margin-left:4px;">—</span>
                 </div>
                 <div class="actions">
-                    <!-- <button class="ai-btn" id="openAiBtn" data-depth="0.25"><i class="fas fa-brain"></i></button>-->
-                    <!-- In the header actions, add this button after aboutBtn -->
-                    <button id="openAiChatBtn" data-depth="0.20" title="AI Chat"><i class="fa-solid fa-feather-pointed"></i></button> 
+                    <button id="openAiChatBtn" data-depth="0.20" title="AI Chat"><i class="fa-solid fa-feather-pointed"></i></button>
                     <button id="aboutBtn" data-depth="0.20"><i class="fas fa-ellipsis-vertical"></i></button>
                 </div>
             </header>
@@ -156,77 +190,82 @@
             <div class="chat-input" data-depth="0.08">
                 <input type="text" id="msgInput" placeholder="Type a message..." />
                 <div class="input-actions">
+                    <button class="attach-btn" id="attachBtn" title="Attach file"><i class="fas fa-paperclip"></i></button>
                     <button class="voice-btn" data-depth="0.15"><i class="fas fa-microphone"></i></button>
                     <button class="send-btn" id="sendBtn" data-depth="0.20"><i class="fas fa-paper-plane"></i></button>
                 </div>
+                <input type="file" id="mediaFileInput" style="display:none;" multiple />
             </div>
         </div>
+
         <!-- ===== AI CHAT VIEW ===== -->
         <div class="view ai-view" id="aiView">
-    <header class="chat-header" data-depth="0.10">
-        <button class="back-btn" id="aiBackBtn" data-depth="0.15">
-            <i class="fas fa-arrow-left"></i>
-        </button>
-        <div class="left">
-            <div class="avatar-sm" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9);">
-                <span style="font-size:1.2rem;font-weight:700;">🧠</span>
+            <header class="chat-header" data-depth="0.10">
+                <button class="back-btn" id="aiBackBtn" data-depth="0.15">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <div class="left">
+                    <div class="avatar-sm" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9);">
+                        <span style="font-size:1.2rem;font-weight:700;">🧠</span>
+                    </div>
+                    <div class="chat-name">
+                        <span>RAGina</span>
+                        <small id="aiStatus">AI Assistant</small>
+                    </div>
+                </div>
+                <div class="right">
+                    <button id="aiClearBtn" data-depth="0.15" title="Clear chat"><i class="fas fa-eraser"></i></button>
+                    <button id="aiExportBtn" data-depth="0.20" title="Export chat"><i class="fas fa-download"></i></button>
+                </div>
+            </header>
+
+            <div class="chat-messages" id="aiMessages"></div>
+
+            <div class="chat-input" data-depth="0.08">
+                <input type="text" id="aiInput" placeholder="Ask about your conversations..." />
+                <div class="input-actions">
+                    <button class="voice-btn" id="aiMicBtn" data-depth="0.15"><i class="fas fa-microphone"></i></button>
+                    <button class="send-btn" id="aiSendBtn" data-depth="0.20"><i class="fas fa-paper-plane"></i></button>
+                </div>
             </div>
-            <div class="chat-name">
-                <span>RAGina</span>
-                <small id="aiStatus">AI Assistant</small>
-            </div>
         </div>
-        <div class="right">
-            <button id="aiClearBtn" data-depth="0.15" title="Clear chat"><i class="fas fa-eraser"></i></button>
-            <button id="aiExportBtn" data-depth="0.20" title="Export chat"><i class="fas fa-download"></i></button>
-        </div>
-    </header>
-    
-    <div class="chat-messages" id="aiMessages"></div>
-    
-    <div class="chat-input" data-depth="0.08">
-        <input type="text" id="aiInput" placeholder="Ask about your conversations..." />
-        <div class="input-actions">
-            <button class="voice-btn" id="aiMicBtn" data-depth="0.15"><i class="fas fa-microphone"></i></button>
-            <button class="send-btn" id="aiSendBtn" data-depth="0.20"><i class="fas fa-paper-plane"></i></button>
-        </div>
-    </div>
-</div>
+
         <!-- ===== CONTACT PROFILE OVERLAY ===== -->
-<div id="contactProfileOverlay" style="display:none;position:absolute;inset:0;z-index:15;background:rgba(8,6,20,0.92);backdrop-filter:blur(16px);flex-direction:column;align-items:center;padding:2rem 1.5rem;overflow-y:auto;border-radius:inherit;">
-    <div style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-        <button id="contactProfileBack" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;">←</button>
-        <span style="font-weight:600;font-size:1rem;color:#7a89a8;">Profile</span>
-        <div style="width:40px;"></div>
-    </div>
-    
-    <div id="contactProfileAvatar" style="width:100px;height:100px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:3rem;font-weight:700;color:#fff;box-shadow:0 8px 40px rgba(0,0,0,0.5);margin-bottom:0.5rem;">
-        <span id="contactProfileAvatarText">U</span>
-    </div>
-    <div id="contactProfileName" style="font-size:1.4rem;font-weight:700;color:#f0f2f7;">Unknown</div>
-    <div id="contactProfileUsername" style="font-size:0.9rem;color:#7a89a8;margin-top:0.1rem;">@username</div>
-    <div id="contactProfilePhone" style="font-size:0.85rem;color:#5a6885;margin-top:0.1rem;">+91 0000000000</div>
-    <div id="contactProfileBio" style="font-size:0.85rem;color:#5a6885;margin-top:0.3rem;text-align:center;max-width:300px;cursor:pointer;">Tap to add a short bio</div>
-    
-    <div style="display:flex;gap:1.2rem;margin-top:1.2rem;">
-        <button id="contactProfileCall" style="padding:0.6rem 1.5rem;border-radius:30px;border:none;background:linear-gradient(135deg,#2fd992,#17a06a);color:#fff;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-phone"></i> Call</button>
-        <button id="contactProfileVideo" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:rgba(79,140,247,0.08);color:#4f8cf7;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-video"></i></button>
-        <button id="contactProfileMessage" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.08);color:#a78bfa;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-comment"></i> Msg</button>
-    </div>
-    
-    <div id="contactBioEditor" style="display:none;width:100%;max-width:320px;margin-top:1rem;">
-        <input id="contactBioInput" type="text" placeholder="Enter bio..." style="width:100%;padding:0.6rem 1rem;border-radius:12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.04);color:#eef0f5;font-size:0.9rem;outline:none;font-family:'Inter',sans-serif;" />
-        <div style="display:flex;gap:0.5rem;margin-top:0.4rem;">
-            <button id="contactBioSave" style="flex:1;padding:0.4rem;border-radius:10px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;cursor:pointer;">Save</button>
-            <button id="contactBioCancel" style="flex:1;padding:0.4rem;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;cursor:pointer;">Cancel</button>
+        <div id="contactProfileOverlay" style="display:none;position:absolute;inset:0;z-index:15;background:rgba(8,6,20,0.92);backdrop-filter:blur(16px);flex-direction:column;align-items:center;padding:2rem 1.5rem;overflow-y:auto;border-radius:inherit;">
+            <div style="width:100%;display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+                <button id="contactProfileBack" style="background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;width:40px;height:40px;border-radius:50%;font-size:1.3rem;cursor:pointer;">←</button>
+                <span style="font-weight:600;font-size:1rem;color:#7a89a8;">Profile</span>
+                <div style="width:40px;"></div>
+            </div>
+
+            <div id="contactProfileAvatar" style="width:100px;height:100px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);display:flex;align-items:center;justify-content:center;font-size:3rem;font-weight:700;color:#fff;box-shadow:0 8px 40px rgba(0,0,0,0.5);margin-bottom:0.5rem;">
+                <span id="contactProfileAvatarText">U</span>
+            </div>
+            <div id="contactProfileName" style="font-size:1.4rem;font-weight:700;color:#f0f2f7;">Unknown</div>
+            <div id="contactProfileUsername" style="font-size:0.9rem;color:#7a89a8;margin-top:0.1rem;">@username</div>
+            <div id="contactProfilePhone" style="font-size:0.85rem;color:#5a6885;margin-top:0.1rem;">+91 0000000000</div>
+            <div id="contactProfileBio" style="font-size:0.85rem;color:#5a6885;margin-top:0.3rem;text-align:center;max-width:300px;cursor:pointer;">Tap to add a short bio</div>
+
+            <div style="display:flex;gap:1.2rem;margin-top:1.2rem;">
+                <button id="contactProfileCall" style="padding:0.6rem 1.5rem;border-radius:30px;border:none;background:linear-gradient(135deg,#2fd992,#17a06a);color:#fff;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-phone"></i> Call</button>
+                <button id="contactProfileVideo" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:rgba(79,140,247,0.08);color:#4f8cf7;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-video"></i></button>
+                <button id="contactProfileMessage" style="padding:0.6rem 1.5rem;border-radius:30px;border:1px solid rgba(139,92,246,0.2);background:rgba(139,92,246,0.08);color:#a78bfa;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.5rem;"><i class="fas fa-comment"></i> Msg</button>
+            </div>
+
+            <div id="contactBioEditor" style="display:none;width:100%;max-width:320px;margin-top:1rem;">
+                <input id="contactBioInput" type="text" placeholder="Enter bio..." style="width:100%;padding:0.6rem 1rem;border-radius:12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.04);color:#eef0f5;font-size:0.9rem;outline:none;font-family:'Inter',sans-serif;" />
+                <div style="display:flex;gap:0.5rem;margin-top:0.4rem;">
+                    <button id="contactBioSave" style="flex:1;padding:0.4rem;border-radius:10px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;cursor:pointer;">Save</button>
+                    <button id="contactBioCancel" style="flex:1;padding:0.4rem;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;cursor:pointer;">Cancel</button>
+                </div>
+            </div>
+
+            <div style="margin-top:1.2rem;width:100%;max-width:320px;border-top:1px solid rgba(255,255,255,0.04);padding-top:0.8rem;">
+                <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;">Recent calls</div>
+                <div id="contactProfileRecentCalls" style="font-size:0.8rem;color:#7a89a8;"></div>
+            </div>
         </div>
-    </div>
-    
-    <div style="margin-top:1.2rem;width:100%;max-width:320px;border-top:1px solid rgba(255,255,255,0.04);padding-top:0.8rem;">
-        <div style="font-size:0.7rem;color:#5a6885;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;">Recent calls</div>
-        <div id="contactProfileRecentCalls" style="font-size:0.8rem;color:#7a89a8;"></div>
-    </div>
-</div>
+
         <!-- ===== REGISTRATION FORM ===== -->
         <div class="registration-overlay" id="regOverlay">
             <div class="registration-form">
@@ -283,17 +322,18 @@
             </div>
         </div>
 
-        <!-- ===== DIALPAD ===== -->
+        <!-- ===== FAB (phone) ===== -->
         <div class="fab-button" id="fabButton">
             <i class="fas fa-phone"></i>
         </div>
+
+        <!-- ===== DIALPAD ===== -->
         <div class="dialpad-overlay" id="dialpadOverlay">
             <div class="dialpad">
                 <div class="dialpad-header">
                     <span>Dial</span>
                     <button class="dialpad-close" id="dialpadClose"><i class="fas fa-times"></i></button>
                 </div>
-                <!-- Display with clear button inside -->
                 <div class="dialpad-display" id="dialpadDisplay" style="position:relative; display:flex; align-items:center; justify-content:center; min-height:52px; padding:12px 16px; background:rgba(255,255,255,0.04); border-radius:14px; margin-bottom:16px; font-size:24px; font-weight:600; text-align:center; color:#f0f2f7; letter-spacing:2px; border:1px solid rgba(255,255,255,0.04);">
                     <span id="dialpadDisplayText"></span>
                     <button id="dialClearBtn" style="position:absolute; right:12px; background:transparent; border:none; color:#a5b3d0; font-size:1.2rem; cursor:pointer; display:none;">
@@ -336,7 +376,7 @@
             </div>
         </div>
 
-        <!-- ===== CALL SCREEN (with video and record) ===== -->
+        <!-- ===== CALL SCREEN ===== -->
         <div id="callScreen" style="display:none;position:fixed;inset:0;z-index:2000;flex-direction:column;justify-content:center;align-items:center;background:rgba(8,6,20,0.92);backdrop-filter:blur(24px);color:#fff;font-family:'Inter',sans-serif;padding:1.5rem;">
             <div id="callRingWrap" style="position:relative;width:130px;height:130px;display:flex;align-items:center;justify-content:center;margin-bottom:0.7rem;">
                 <div class="call-ring" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid #8b5cf6;opacity:0;animation:callPulse 2.4s ease-out infinite;"></div>
@@ -344,7 +384,6 @@
                 <div class="call-ring" style="position:absolute;inset:0;border-radius:50%;border:1.5px solid #8b5cf6;opacity:0;animation:callPulse 2.4s ease-out infinite;animation-delay:1.6s;"></div>
                 <div id="callAvatar" style="width:100px;height:100px;border-radius:50%;background:linear-gradient(155deg,#141c30,#0e1424);border:2px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;font-size:2.5rem;z-index:1;color:#fff;">🤖</div>
             </div>
-            <!-- Video container (hidden by default) -->
             <div id="videoContainer" style="display:none; width:100%; max-width:400px; margin-bottom:0.5rem; border-radius:16px; overflow:hidden; background:rgba(0,0,0,0.3);">
                 <video id="remoteVideo" style="width:100%; display:block;" autoplay playsinline></video>
                 <video id="localVideo" style="width:100%; display:block; position:absolute; top:0; left:0; width:120px; height:90px; object-fit:cover; border-radius:12px; margin:8px; border:2px solid rgba(255,255,255,0.1);" autoplay playsinline muted></video>
@@ -381,7 +420,7 @@
         </div>
 
         <!-- ===== CALL DETAILS MODAL ===== -->
-        <div id="callDetailsModal" style="display:none;position:fixed;inset:0;z-index:5000;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);align-items:flex-end;justify-content:center;padding:1rem;">
+        <div id="callDetailsModal" style="display:none;position:absolute;inset:0;z-index:5000;background:rgba(0,0,0,0.75);backdrop-filter:blur(16px);align-items:flex-end;justify-content:center;padding:1rem;">
             <div id="callDetailsCard" style="background:rgba(18,16,36,0.96);border-radius:28px 28px 0 0;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;padding:1.5rem 1.2rem 1.2rem;border:1px solid rgba(255,255,255,0.06);box-shadow:0 -20px 60px rgba(0,0,0,0.5);transform:translateY(100%);transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                     <span style="font-size:1.1rem;font-weight:700;color:#f0f2f7;">Call info</span>
@@ -423,10 +462,9 @@
                     <button class="details-export-btn" data-format="txt" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 TXT</button>
                     <button class="details-export-btn" data-format="json" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#a5b3d0;font-weight:500;font-size:0.7rem;cursor:pointer;">📄 JSON</button>
                     <button class="details-export-btn" data-format="share" style="padding:0.3rem 0.8rem;border-radius:30px;border:1px solid rgba(79,140,247,0.2);background:transparent;color:#8b5cf6;font-weight:500;font-size:0.7rem;cursor:pointer;">↗ Share</button>
-                    
                 </div>
                 <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid rgba(255,255,255,0.06);font-size:0.75rem;color:#5a6885;display:flex;gap:0.6rem;text-align:center;">
-                    <i class="fas fa-shield"></i> Your conversations are end to end encrypted 
+                    <i class="fas fa-shield"></i> Your conversations are end to end encrypted
                 </div>
             </div>
         </div>
@@ -453,7 +491,6 @@
                 <button id="saveContactConfirm" style="width:100%;padding:0.7rem;border-radius:16px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-weight:600;font-size:0.95rem;cursor:pointer;">Save</button>
             </div>
         </div>
-        
 
         <!-- ===== ABOUT OVERLAY ===== -->
         <div id="aboutOverlay" style="display:none;position:absolute;inset:0;z-index:100;background:rgba(8,6,20,0.7);backdrop-filter:blur(12px);align-items:center;justify-content:center;border-radius:inherit;">
@@ -514,7 +551,13 @@
 
     </div> <!-- end .app -->
 
+    <!-- ===== EXISTING APP SCRIPTS (unchanged) ===== -->
     <script src="script.js"></script>
     <script src="app.js"></script>
+
+    <!-- ===== NEW MODULES (self-initializing) ===== -->
+    <script src="js/mediaStorage.js"></script>
+    <script src="js/fileTransfer.js"></script>
+    <script src="js/aiAgent.js"></script>
 </body>
 </html>
