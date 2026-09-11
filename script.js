@@ -274,6 +274,90 @@ function sendMessageToFirestore(peer, text) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🆕 4b. MEDIA HELPERS (files/images/video/PDF)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Called when the user picks one or more files via the 📎 button.
+ * Saves each file to IndexedDB (MediaStore) and posts a reference message
+ * through the existing Firestore pipeline. Also attempts a direct
+ * PeerJS DataConnection transfer if PremCall has one open.
+ */
+async function handleAttachFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (!activeChatPeer) { showToast('Open a chat first'); return; }
+    if (!window.MediaStore) { showToast('Media storage unavailable'); return; }
+
+    for (const file of files) {
+        try {
+            const messageId = 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
+            // 1) Save blob locally
+            const mediaId = await window.MediaStore.saveMediaFile(file, activeChatPeer, messageId);
+
+            // 2) Post a reference through Firestore (works even without a live call)
+            const refText = '📎 ' + (file.name || 'file') +
+                            ' [media:' + mediaId + ']';
+            sendMessageToFirestore(activeChatPeer, refText);
+
+            // 3) If we have a live PeerJS DataConnection, push the actual bytes
+            if (window.PremCall && window.PremCall.getActiveDataConn &&
+                window.PremCall.getActiveDataConn()) {
+                try {
+                    await window.PremCall.sendFile(file, activeChatPeer, (sent, total) => {
+                        if (sent === total) showToast('📤 Sent: ' + file.name);
+                    });
+                } catch (err) {
+                    console.warn('Peer transfer failed (local copy kept):', err);
+                }
+            }
+
+            showToast('📎 Attached: ' + (file.name || 'file'));
+        } catch (err) {
+            console.error('Attach failed:', err);
+            showToast('Attach failed: ' + (err.message || 'unknown'));
+        }
+    }
+}
+
+/**
+ * Inbound listener — wired to the `sandesai:file-received` event fired
+ * by js/fileTransfer.js after a PeerJS chunked transfer completes.
+ * It inserts a chat message referencing the saved mediaId.
+ */
+function initIncomingFileListener() {
+    window.addEventListener('sandesai:file-received', (e) => {
+        const detail = e.detail || {};
+        const mediaId = detail.mediaId;
+        const meta = detail.meta || {};
+        if (!mediaId) return;
+
+        // Identify the conversation (peer's phone number)
+        let peer = meta.chatId || null;
+        if (!peer && window.PremCall && window.PremCall.getActiveDataConn) {
+            const conn = window.PremCall.getActiveDataConn();
+            if (conn && conn.peer) peer = conn.peer;
+        }
+
+        showToast('📥 Received: ' + (meta.fileName || 'file'));
+
+        if (!peer) return;
+
+        // Store / render locally in case Firestore isn't reachable
+        if (!firestoreConversations[peer]) firestoreConversations[peer] = [];
+        firestoreConversations[peer].push({
+            text: '📎 ' + (meta.fileName || 'file') + ' [media:' + mediaId + ']',
+            timestamp: Date.now(),
+            direction: 'incoming',
+            from: peer
+        });
+        if (activeChatPeer === peer) renderMessages();
+        renderChatList();
+    });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 5. RENDER FUNCTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderChatList() {
@@ -351,24 +435,67 @@ function renderChatList() {
     applyTheme(savedTheme);
 }
 
+// Media-aware message renderer — supports inline images/video/audio/files
 function renderMessages() {
     const container = document.getElementById('chatMessages');
     if (!container) return;
-    if (!activeChatPeer) {
-        container.innerHTML = '';
-        return;
-    }
+    if (!activeChatPeer) { container.innerHTML = ''; return; }
+
     const msgs = firestoreConversations[activeChatPeer] || [];
     container.innerHTML = '';
+
     msgs.forEach((msg, index) => {
         const div = document.createElement('div');
         const isSent = msg.direction === 'outgoing';
         div.className = `msg ${isSent ? 'sent' : 'received'}`;
         div.style.animationDelay = `${index * 0.04}s`;
-        const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        div.innerHTML = `${msg.text}<span class="time-tag">${time}</span>`;
+
+        const time = msg.timestamp
+            ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '';
+
+        // Detect media reference: [media:ID]
+        const mediaMatch = (msg.text || '').match(/\[media:([^\]]+)\]/);
+        const cleanText = (msg.text || '').replace(/\[media:[^\]]+\]/, '').trim();
+
+        // Render text (if any) — if pure media, only the attachment shows
+        if (cleanText) {
+            const textSpan = document.createElement('span');
+            textSpan.textContent = cleanText;
+            div.appendChild(textSpan);
+        }
+
+        // Render media element
+        if (mediaMatch && window.MediaStore) {
+            const mediaId = mediaMatch[1];
+            const placeholder = document.createElement('div');
+            placeholder.textContent = '📎 Loading…';
+            placeholder.style.cssText = 'opacity:0.6;font-size:0.8rem;margin-top:4px;';
+            div.appendChild(placeholder);
+
+            window.MediaStore.renderMediaElement(mediaId).then(res => {
+                if (!res || !res.el) { placeholder.textContent = '⚠️ Media unavailable'; return; }
+                placeholder.replaceWith(res.el);
+
+                // Revoke object URL once the media has loaded (frees memory)
+                if (res.el.tagName === 'IMG') {
+                    res.el.onload = () => window.MediaStore.revokeMediaURL(res.url);
+                }
+            }).catch(err => {
+                console.warn('Media load failed:', err);
+                placeholder.textContent = '⚠️ Media unavailable';
+            });
+        }
+
+        // Timestamp
+        const timeEl = document.createElement('span');
+        timeEl.className = 'time-tag';
+        timeEl.textContent = time;
+        div.appendChild(timeEl);
+
         container.appendChild(div);
     });
+
     container.scrollTop = container.scrollHeight;
 
     const name = getContactName(activeChatPeer) || activeChatPeer;
@@ -793,7 +920,15 @@ function openChat(peer) {
     applyTheme(savedTheme);
 }
 
+// closeChat also revokes any leftover blob URLs to free memory
 function closeChat() {
+    // Revoke any media object URLs still attached to DOM nodes
+    document.querySelectorAll('#chatMessages img[src^="blob:"], ' +
+                              '#chatMessages video[src^="blob:"], ' +
+                              '#chatMessages audio[src^="blob:"]').forEach(el => {
+        if (el.src && el.src.startsWith('blob:')) URL.revokeObjectURL(el.src);
+    });
+
     activeChatPeer = null;
     document.getElementById('chatView').classList.remove('open');
     document.getElementById('listView').classList.remove('shrink');
@@ -1212,7 +1347,7 @@ function initDebugConsole() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 14. CALL DETAILS MODAL & SAVE CONTACT (with 📝 button restored)
+// 14. CALL DETAILS MODAL & SAVE CONTACT
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 window.openCallDetails = function(logId) {
     const logs = window.PremCall ? window.PremCall.getLogs() : [];
@@ -1301,7 +1436,6 @@ window.openCallDetails = function(logId) {
             transcriptDiv.innerHTML = '<div style="color:#5a6885;text-align:center;padding:0.5rem;">No transcript for this call</div>';
         }
 
-        // Add the 📝 button next to the transcript header
         const header = transcriptContainer.querySelector('div:first-child');
         if (header) {
             let existingBtn = header.querySelector('.transcript-update-btn');
@@ -1426,7 +1560,7 @@ function openSaveContactModal(number) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 15. EVENT LISTENERS (FIXED – all call/video buttons work)
+// 15. EVENT LISTENERS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function setupEventListeners() {
     const backBtn = document.getElementById('backBtn');
@@ -1436,6 +1570,20 @@ function setupEventListeners() {
     if (sendBtn) sendBtn.addEventListener('click', sendMessage);
     const msgInput = document.getElementById('msgInput');
     if (msgInput) msgInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+    // Attach button + hidden file input (media send)
+    const attachBtn = document.getElementById('attachBtn');
+    const mediaFileInput = document.getElementById('mediaFileInput');
+    if (attachBtn && mediaFileInput) {
+        attachBtn.addEventListener('click', () => mediaFileInput.click());
+        mediaFileInput.addEventListener('change', (e) => {
+            handleAttachFiles(e.target.files);
+            e.target.value = ''; // allow re-picking the same file
+        });
+    }
+
+    // Listen for inbound files arriving over PeerJS
+    initIncomingFileListener();
 
     // ─── Chat header: Call & Video buttons ───
     const chatCallBtn = document.getElementById('chatCallBtn');
@@ -1517,7 +1665,7 @@ function setupEventListeners() {
         });
     }
 
-    // ─── Profile button – opens contact profile (not "Me") ───
+    // ─── Profile button – opens contact profile ───
     const openProfileBtn = document.getElementById('openProfileBtn');
     if (openProfileBtn) {
         openProfileBtn.addEventListener('click', () => {
@@ -1529,7 +1677,6 @@ function setupEventListeners() {
             if (typeof openContactProfile === 'function') {
                 openContactProfile(peer);
             } else {
-                // fallback to Me tab
                 if (document.getElementById('chatView')?.classList.contains('open')) {
                     closeChat();
                 }
@@ -1659,7 +1806,7 @@ function setupEventListeners() {
         initSettings();
         initRegistration();
         initFabToggle();
-        initContactProfile();          // <-- NOW CALLED! Wires up contact profile buttons
+        initContactProfile();
         renderChatList();
         renderCallList();
         setupEventListeners();
@@ -1701,3 +1848,6 @@ window.closeChat = closeChat;
 window.renderChatList = renderChatList;
 window.renderMessages = renderMessages;
 window.sendMessage = sendMessage;
+
+// Expose media helper for external use / debugging
+window.handleAttachFiles = handleAttachFiles; 
