@@ -6,6 +6,7 @@
 //   • Invite overlay with phone + OTP + name
 //   • Trap-mode: wrong-number invites register user but don't connect
 //   • Unified welcome popup (logo hero + beating heart badge)
+//   • Google Sheets registration log (via Apps Script webhook)
 //   • Refresh connection
 //   • Call log sync (Firestore <-> local)
 //   • Profile lookup (name + username)
@@ -16,6 +17,12 @@
     // ── Constants ──
     const INVITE_SECRET = 'sandesai-invite-v1-2026';
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+    // ════════════════════════════════════════════════════════════
+    // 🆕 GOOGLE SHEETS WEBHOOK — paste your /exec URL below
+    // ════════════════════════════════════════════════════════════
+    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyDaXQHleBxnRo8C3fzEUYdscq_8ztU3Da_ZuBnoppJQRqvvXvx_xGlfbLdHnnBw2PL/exec?pass=sandesai-admin-2026';
+    const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
 
     let bootHadInvite = false;
 
@@ -71,6 +78,37 @@
             ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
     window.escapeHtml = escapeHtml;
+
+    // ────────────────────────────────────────────────────────────
+    // 2b. 🆕 SEND REGISTRATION TO GOOGLE SHEET
+    //     Fire-and-forget — never blocks the UI, never throws
+    // ────────────────────────────────────────────────────────────
+    async function logRegistrationToSheet(name, username, phone) {
+        if (!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('PASTE_YOUR') === 0) {
+            console.warn('📊 Sheet webhook URL not configured');
+            return;
+        }
+        try {
+            // Use text/plain + no-cors to avoid CORS preflight with Apps Script
+            await fetch(SHEET_WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    secret: SHEET_WEBHOOK_SECRET,
+                    name: name || '',
+                    username: username || '',
+                    phone: phone || '',
+                    uid: (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '',
+                }),
+            });
+            console.log('📊 Registration sent to Google Sheet');
+        } catch (e) {
+            // Never surface this error — it's just analytics
+            console.warn('📊 Sheet notification failed:', e);
+        }
+    }
+    window.logRegistrationToSheet = logRegistrationToSheet;
 
     // ────────────────────────────────────────────────────────────
     // 3. SHARE INVITE — any app, no duplicate URL
@@ -181,6 +219,9 @@
             if (typeof window.initCallSignaling === 'function') window.initCallSignaling();
             if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
         }, 1200);
+
+        // 🆕 Log to Google Sheet (fire-and-forget)
+        logRegistrationToSheet(name, userid, phone);
 
         // Update UI bits
         const mn = document.getElementById('myNumberDisplay');
@@ -427,8 +468,6 @@
 
     // ────────────────────────────────────────────────────────────
     // 8. UNIFIED WELCOME POPUP (logo hero + heart badge + sparkles)
-    //    variant: 'welcome'      → normal join, ☝️ hint about ⋮ menu
-    //    variant: 'wrong-invite' → trap path, gentle "wasn't for you"
     // ────────────────────────────────────────────────────────────
     function showJoinWelcomePopup(name, variant) {
         document.getElementById('welcomePopup')?.remove();
@@ -533,18 +572,15 @@
                     </div>
                 ` : ''}
 
-                <!-- Logo hero + heart badge + sparkles -->
                 <div style="position:relative; width:132px; height:132px;
                             margin:6px auto 10px;">
 
-                    <!-- Ambient glow behind logo -->
                     <div style="position:absolute; inset:0; border-radius:50%;
                                 background: radial-gradient(circle,
                                     ${logoGlow} 0%, transparent 72%);
                                 animation: wpopGlowPulse 1.8s ease-in-out infinite;
                                 filter: blur(10px);"></div>
 
-                    <!-- Drifting sparkles -->
                     <span style="position:absolute; left:-6px; top:24%;
                                  font-size:13px; color:#c4b5fd;
                                  animation: wpopSparkle 2.6s ease-in-out infinite;
@@ -558,7 +594,6 @@
                                  animation: wpopSparkle 2.6s ease-in-out infinite;
                                  animation-delay: 1.6s;">✦</span>
 
-                    <!-- Logo -->
                     <img src="sandesai-logo.png" alt="Sandesai"
                          style="position:absolute; left:50%; top:50%;
                                 transform: translate(-50%, -50%);
@@ -570,7 +605,6 @@
                                     0 10px 30px rgba(0,0,0,0.55);
                                 object-fit:cover;" />
 
-                    <!-- Beating heart badge -->
                     <div style="position:absolute; right:6px; bottom:6px;
                                 width:38px; height:38px;
                                 border-radius:50%;
@@ -1091,7 +1125,23 @@
             submitBtn.style.opacity = '0.7';
             submitBtn.textContent = 'Registering…';
 
+            // Save user-chosen username (overrides auto-generated)
+            const userData = { name, userid, phone, registered: true, status: 'online' };
+            localStorage.setItem('neonUser', JSON.stringify(userData));
+
             await _finishRegistration(name, phone);
+
+            // Overwrite the auto-generated username with the one they chose
+            try {
+                const u = JSON.parse(localStorage.getItem('neonUser') || '{}');
+                u.userid = userid;
+                localStorage.setItem('neonUser', JSON.stringify(u));
+                if (window.db && phone) {
+                    window.db.collection('profiles').doc(phone).set({
+                        username: userid
+                    }, { merge: true }).catch(() => {});
+                }
+            } catch (e) {}
 
             const screenEl = document.getElementById('bootRegScreen');
             if (screenEl) {
@@ -1150,5 +1200,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles');
+    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets');
 })();
