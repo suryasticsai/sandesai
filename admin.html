@@ -238,6 +238,7 @@
                         <th>User</th>
                         <th>Phone</th>
                         <th>Username</th>
+                        <th>UID</th>
                         <th>Registered</th>
                     </tr>
                 </thead>
@@ -257,10 +258,15 @@
 
 <script>
 // ════════════════════════════════════════════════════════════════
-// 🔐 CHANGE THE PASSCODE if you want — keep both in sync:
-//    this one below, AND the one inside the Apps Script doGet()
+// 1️⃣  ADMIN PASSCODE
+//     Must match the password check inside your Apps Script doGet().
+//     If you change it here, change it there too and re-deploy.
 // ════════════════════════════════════════════════════════════════
 const ADMIN_PASSWORD = 'sandesai-admin-2026';
+
+// ════════════════════════════════════════════════════════════════
+// 2️⃣  APPS SCRIPT WEB APP URL
+//     ════════════════════════════════════════════════════════════════
 const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyDaXQHleBxnRo8C3fzEUYdscq_8ztU3Da_ZuBnoppJQRqvvXvx_xGlfbLdHnnBw2PL/exec?pass=sandesai-admin-2026';
 
 let allUsers = [];
@@ -271,7 +277,7 @@ const gatePass = document.getElementById('gatePass');
 const gateSubmit = document.getElementById('gateSubmit');
 const gateError = document.getElementById('gateError');
 
-// Remember unlock for this session
+// Remember unlock for this browser session
 if (sessionStorage.getItem('sandesai_admin_unlocked') === '1') unlock();
 
 gateSubmit.addEventListener('click', tryUnlock);
@@ -316,7 +322,9 @@ async function loadUsers() {
         const resp = await fetch(url);
         const data = await resp.json();
 
-        if (!data.ok) throw new Error(data.error || 'unknown error');
+        if (!data.ok) {
+            throw new Error(data.error || 'unknown error');
+        }
 
         allUsers = data.users || [];
         allUsers.sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0));
@@ -329,14 +337,27 @@ async function loadUsers() {
             new Date().toLocaleTimeString();
     } catch (e) {
         console.error('Load failed:', e);
+        let hint = '';
+        if (e.message === 'forbidden') {
+            hint = `
+                <div style="font-size:0.8rem;color:#7a89a8;margin-top:12px;line-height:1.6;">
+                    Password mismatch between this page and the Apps Script.<br>
+                    1. Check <code>ADMIN_PASSWORD</code> above<br>
+                    2. Check the password in the Apps Script <code>doGet()</code><br>
+                    3. Re-deploy: <b>Deploy → Manage deployments → ✏️ → New version → Deploy</b>
+                </div>`;
+        } else {
+            hint = `
+                <div style="font-size:0.8rem;color:#7a89a8;margin-top:12px;line-height:1.6;">
+                    Confirm the Apps Script is deployed with<br>
+                    <code>Who has access: Anyone</code> and the URL ends in <code>/exec</code>.
+                </div>`;
+        }
         document.getElementById('loader').innerHTML =
             '<div style="color:#ef4444;padding:20px;text-align:center;">' +
             '<div style="font-size:1.2rem;margin-bottom:8px;">⚠️ Error</div>' +
-            escapeHtml(e.message) +
-            '<div style="font-size:0.8rem;color:#7a89a8;margin-top:12px;line-height:1.6;">' +
-            'Check that the Apps Script is deployed with<br>' +
-            '<code style="background:rgba(139,92,246,0.15);padding:2px 6px;border-radius:4px;">' +
-            'Who has access: Anyone</code> and the URL ends in <code>/exec</code>.</div></div>';
+            escapeHtml(e.message) + hint +
+            '</div>';
     }
 }
 
@@ -377,6 +398,9 @@ function renderUsers(list) {
                 hour: '2-digit', minute: '2-digit'
               })
             : '—';
+        const uidShort = u.uid
+            ? escapeHtml(u.uid.slice(0, 8)) + '…'
+            : '<span style="color:#5a6885;">—</span>';
 
         return `
             <tr>
@@ -393,6 +417,7 @@ function renderUsers(list) {
                 </td>
                 <td><span class="phone">+91 ${escapeHtml(u.phone || '')}</span></td>
                 <td>${u.username ? '@' + escapeHtml(u.username) : '<span style="color:#5a6885;">—</span>'}</td>
+                <td><span style="font-family:'Monaco','Menlo',monospace;font-size:0.75rem;color:#7a89a8;">${uidShort}</span></td>
                 <td><span class="time">${timeStr}</span></td>
             </tr>
         `;
@@ -418,9 +443,12 @@ document.getElementById('refreshBtn').addEventListener('click', loadUsers);
 
 document.getElementById('exportBtn').addEventListener('click', () => {
     if (!allUsers.length) { alert('No users to export'); return; }
-    const header = ['Name', 'Username', 'Phone', 'Registered At'];
+    const header = ['Name', 'Username', 'Phone', 'UID', 'Registered At'];
     const rows = allUsers.map(u => [
-        u.name || '', u.username || '', u.phone || '',
+        u.name || '',
+        u.username || '',
+        u.phone || '',
+        u.uid || '',
         u.registeredAt ? new Date(u.registeredAt).toISOString() : '',
     ]);
     const csv = [header, ...rows]
