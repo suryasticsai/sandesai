@@ -21,7 +21,7 @@
     // ════════════════════════════════════════════════════════════
     // 🆕 GOOGLE SHEETS WEBHOOK — paste your /exec URL below
     // ════════════════════════════════════════════════════════════
-    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyDaXQHleBxnRo8C3fzEUYdscq_8ztU3Da_ZuBnoppJQRqvvXvx_xGlfbLdHnnBw2PL/exec?pass=sandesai-admin-2026';
+    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxTSk_TaCiR4xyGcANJriUuzhBQNMQUJ7YIALa_wMUsBMNGSB7kWjYAAyzXG1u5NjAx/exec?pass=sandesai-admin-2026';
     const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
 
     let bootHadInvite = false;
