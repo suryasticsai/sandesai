@@ -1,8 +1,7 @@
 // ============================================================
 // APP.JS – Calling Core (PeerJS, RAGina, Video, Recording,
-//          Firestore signaling fallback, chunked file transfer,
-//          Voice Skills integration: VAD, barge-in, latency,
-//          emotion, streaming TTS)
+//          Firestore signaling, chunked file transfer,
+//          VAD-free barge-in via SpeechRecognition interimResults)
 // ============================================================
 
 (function(global) {
@@ -39,24 +38,19 @@
     let ttsVoices = [];
     let speechUnlocked = false;
 
-    // File transfer state
     let activeDataConn = null;
     let fileSendQueue = [];
-
-    // Firestore signaling (via script.js)
     let currentCallSignalId = null;
 
     let actx = null;
 
-    // ═══════════════════════════════════════════════════════════
-    // VOICE SKILLS INTEGRATION STATE
-    // ═══════════════════════════════════════════════════════════
-    const BARGE_IN_GRACE_MS = 350;      // ignore VAD hits within this window (echo protection)
-    let raginaSpeakingStartedAt = 0;    // when AI started current TTS
-    let raginaTurnStartTime = 0;        // when user stopped speaking (turn start)
-    let raginaBargeInCount = 0;         // total interrupts during this call
-    let raginaLatencySamples = [];      // rolling window of turn latencies
-    let raginaVoiceSubs = [];           // { event, handler } for cleanup
+    // Barge-in state
+    const BARGE_IN_GRACE_MS = 350;
+    let raginaSpeakingStartedAt = 0;
+    let raginaTurnStartTime = 0;
+    let raginaBargeInCount = 0;
+    let raginaLatencySamples = [];
+    let raginaVoiceSubs = [];
 
     function audioCtx() {
         if (!actx) {
@@ -141,9 +135,7 @@
     function startLog(number, type, direction) {
         currentLog = {
             id: Date.now(),
-            number,
-            type,
-            direction,
+            number, type, direction,
             started: Date.now(),
             ended: null,
             duration: '',
@@ -209,15 +201,13 @@
     function voiceSkillsAvailable() {
         return typeof global.VoiceSkills !== 'undefined' && global.VoiceSkills !== null;
     }
-
     function voiceSkillsOn(event, handler) {
         if (!voiceSkillsAvailable() || !global.VoiceSkills.on) return;
         try {
             global.VoiceSkills.on(event, handler);
             raginaVoiceSubs.push({ event, handler });
-        } catch (e) { console.warn('VoiceSkills subscribe failed:', e); }
+        } catch (e) {}
     }
-
     function voiceSkillsOffAll() {
         if (!voiceSkillsAvailable() || !global.VoiceSkills.off) return;
         raginaVoiceSubs.forEach(sub => {
@@ -225,114 +215,55 @@
         });
         raginaVoiceSubs = [];
     }
-
     function voiceSkillsMarkTurnStart() {
         raginaTurnStartTime = Date.now();
         if (voiceSkillsAvailable() && global.VoiceSkills.markTurnStart) {
             try { global.VoiceSkills.markTurnStart(); } catch (e) {}
         }
     }
-
     function voiceSkillsMarkTurnEnd() {
         const elapsed = raginaTurnStartTime ? Date.now() - raginaTurnStartTime : 0;
         raginaTurnStartTime = 0;
         if (elapsed > 0) {
             raginaLatencySamples.push(elapsed);
             if (raginaLatencySamples.length > 20) raginaLatencySamples.shift();
-            const avg = Math.round(raginaLatencySamples.reduce((a, b) => a + b, 0) / raginaLatencySamples.length);
-            console.log('📊 RAGina turn latency:', elapsed, 'ms (avg ' + avg + 'ms)');
         }
         if (voiceSkillsAvailable() && global.VoiceSkills.markTurnEnd) {
             try { global.VoiceSkills.markTurnEnd(); } catch (e) {}
         }
     }
-
     function voiceSkillsRecordSpoken(text) {
         if (voiceSkillsAvailable() && global.VoiceSkills.recordSpoken) {
             try { global.VoiceSkills.recordSpoken(text); } catch (e) {}
         }
     }
-
-    function voiceSkillsLogEmotion() {
-        if (!voiceSkillsAvailable() || !global.VoiceSkills.getEmotion) return;
-        try {
-            const emo = global.VoiceSkills.getEmotion();
-            if (emo && emo.label) {
-                console.log('🎭 User tone:', emo.label,
-                    '(' + Math.round((emo.confidence || 0) * 100) + '%)');
-            }
-        } catch (e) {}
+    function voiceSkillsSetSpeaking(v) {
+        if (voiceSkillsAvailable() && global.VoiceSkills.setSpeaking) {
+            try { global.VoiceSkills.setSpeaking(v); } catch (e) {}
+        }
     }
-
-    /**
-     * Called by VoiceSkills when VAD detects speech during AI TTS.
-     * Cancels the current utterance and immediately re-opens the mic.
-     */
-    function handleRAGinaBargeIn() {
-        if (!raginaCallActive) return;
-        if (!isSpeaking) return;
-
-        const elapsed = Date.now() - raginaSpeakingStartedAt;
-        if (elapsed < BARGE_IN_GRACE_MS) {
-            // Likely echo of our own TTS — ignore
-            return;
+    function voiceSkillsNotifySpeechStart(source) {
+        if (voiceSkillsAvailable() && global.VoiceSkills.notifySpeechStart) {
+            try { global.VoiceSkills.notifySpeechStart(source); } catch (e) {}
         }
-
-        raginaBargeInCount++;
-        console.log('⚡ Barge-in #' + raginaBargeInCount + ' after ' + elapsed + 'ms');
-
-        if (window.speechSynthesis) {
-            try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+    function voiceSkillsNotifySpeechEnd(source) {
+        if (voiceSkillsAvailable() && global.VoiceSkills.notifySpeechEnd) {
+            try { global.VoiceSkills.notifySpeechEnd(source); } catch (e) {}
         }
-        isSpeaking = false;
-
-        showToast('✋ Go ahead — I\'m listening');
-
-        if (raginaRecognition) {
-            try { raginaRecognition.stop(); } catch (e) {}
-            raginaRecognition = null;
-        }
-
-        if (raginaCallActive && !raginaIsMuted) {
-            setTimeout(listenToRAGina, 150);
+    }
+    function voiceSkillsNotifyBargeIn() {
+        if (voiceSkillsAvailable() && global.VoiceSkills.notifyBargeIn) {
+            try { global.VoiceSkills.notifyBargeIn(); } catch (e) {}
         }
     }
 
-    /**
-     * Wire VoiceSkills events for a RAGina call.
-     * Safe to call multiple times — re-subscribes cleanly.
-     */
     function setupRAGinaVoiceSkills() {
         voiceSkillsOffAll();
         if (!voiceSkillsAvailable()) {
             console.log('ℹ️ VoiceSkills not loaded — running in basic mode');
             return;
         }
-        if (global.VoiceSkills.startListening) {
-            try {
-                const p = global.VoiceSkills.startListening();
-                if (p && p.catch) p.catch(() => {});
-            } catch (e) {}
-        }
-        voiceSkillsOn('barge-in', handleRAGinaBargeIn);
-        voiceSkillsOn('speech-start', () => {
-            if (!raginaCallActive) return;
-            const status = document.getElementById('callSubstatus');
-            if (status && !isSpeaking) status.textContent = '🎤 Listening…';
-        });
-        voiceSkillsOn('speech-end', (e) => {
-            const d = e && e.detail;
-            if (d && d.duration) {
-                console.log('🎤 User spoke', d.duration, 'ms');
-            }
-            const status = document.getElementById('callSubstatus');
-            if (status && raginaCallActive && !isSpeaking) {
-                status.textContent = 'Thinking…';
-            }
-        });
-        voiceSkillsOn('vad-misfire', () => {
-            // Cough, door slam, etc. — silently ignored
-        });
         console.log('🎙️ VoiceSkills wired for RAGina call');
     }
 
@@ -342,19 +273,8 @@
         if (global.VoiceSkills.cancelSpeech) {
             try { global.VoiceSkills.cancelSpeech(); } catch (e) {}
         }
-        if (global.VoiceSkills.stopListening) {
-            try {
-                const p = global.VoiceSkills.stopListening();
-                if (p && p.catch) p.catch(() => {});
-            } catch (e) {}
-        }
     }
 
-    /**
-     * Speak AI text with optional streaming + spoken-line recording.
-     * Long responses (>140 chars) are split into sentences so the user
-     * hears the first sentence while the rest is still being prepared.
-     */
     async function speakAIResponse(text) {
         if (!raginaCallActive) return;
         if (!text) return;
@@ -362,7 +282,6 @@
         voiceSkillsRecordSpoken(text);
         raginaSpeakingStartedAt = Date.now();
 
-        // Long text + streaming TTS available → stream sentence-by-sentence
         if (text.length > 140 && voiceSkillsAvailable() && global.VoiceSkills.streamSpeak) {
             try {
                 await global.VoiceSkills.streamSpeak(text, (chunk, i, total) => {
@@ -370,10 +289,9 @@
                 });
                 return;
             } catch (e) {
-                console.warn('Streaming TTS failed, falling back to full:', e);
+                console.warn('Streaming TTS failed, falling back:', e);
             }
         }
-
         await speakText(text);
     }
 
@@ -411,13 +329,23 @@
             u.onstart = () => {
                 isSpeaking = true;
                 raginaSpeakingStartedAt = Date.now();
+                voiceSkillsSetSpeaking(true);
             };
-            u.onend = () => { isSpeaking = false; resolve(); };
-            u.onerror = () => { isSpeaking = false; showToast('🔊 ' + clean); resolve(); };
+            u.onend = () => {
+                isSpeaking = false;
+                voiceSkillsSetSpeaking(false);
+                resolve();
+            };
+            u.onerror = () => {
+                isSpeaking = false;
+                voiceSkillsSetSpeaking(false);
+                resolve();
+            };
 
             const timeout = setTimeout(() => {
                 if (isSpeaking) {
                     isSpeaking = false;
+                    voiceSkillsSetSpeaking(false);
                     window.speechSynthesis.cancel();
                     resolve();
                 }
@@ -426,8 +354,8 @@
             try { window.speechSynthesis.speak(u); }
             catch (e) {
                 isSpeaking = false;
+                voiceSkillsSetSpeaking(false);
                 clearTimeout(timeout);
-                showToast('🔊 ' + clean);
                 resolve();
             }
         });
@@ -489,7 +417,7 @@
         stopRingtone();
     }
 
-    // ---------- wireCallEvents (with data channel) ----------
+    // ---------- wireCallEvents ----------
     function wireCallEvents(call) {
         activeCall = call;
         inCall = true;
@@ -536,18 +464,12 @@
 
                 conn.on('data', (data) => {
                     if (FileTransfer && FileTransfer.handleIncoming(data)) return;
-                    if (data && data.type === 'chat-text') {
-                        console.log('💬 Data-channel chat:', data.text);
-                    }
                 });
 
                 conn.on('close', () => {
-                    console.log('📡 DataConnection closed');
                     if (activeDataConn === conn) activeDataConn = null;
                 });
-
-                conn.on('error', (err) => {
-                    console.warn('DataConnection error:', err);
+                conn.on('error', () => {
                     if (activeDataConn === conn) activeDataConn = null;
                 });
             } catch (e) {
@@ -643,23 +565,19 @@
             }, 3000);
         });
         peer.on('error', err => {
-            console.warn('PeerJS error:', err.type, err.message);
+            console.warn('PeerJS error:', err.type);
             if (err.type === 'unavailable-id') {
-                showToast('Number in use — retrying…');
                 try { peer.destroy(); } catch (e) {}
                 setTimeout(() => {
                     try {
                         peer = new global.Peer(myNumber, { debug: 0 });
                         attachPeerHandlers();
-                    } catch (e) { console.warn('Peer retry failed', e); }
+                    } catch (e) {}
                 }, 2000);
             } else if (err.type === 'network' || err.type === 'server-error') {
-                showToast('Network hiccup — reconnecting');
                 setTimeout(() => {
                     if (peer && !peer.destroyed) try { peer.reconnect(); } catch (e) {}
                 }, 3000);
-            } else {
-                showToast('Call error: ' + err.type);
             }
         });
         peer.on('call', call => {
@@ -671,7 +589,6 @@
             conn.on('open', () => {
                 if (!activeDataConn) {
                     activeDataConn = conn;
-                    console.log('📡 Incoming DataConnection from', conn.peer);
                 }
             });
             conn.on('data', (data) => {
@@ -751,41 +668,71 @@
             const wrap2 = document.getElementById('callRingWrap');
             if (wrap2) wrap2.classList.remove('ring-anim');
 
-            // 🆕 Wire VoiceSkills for this call
             setupRAGinaVoiceSkills();
 
             const greeting = "Hello! I'm RAGina. What is your name?";
             logMsg('ragina', greeting);
+            document.getElementById('callSubstatus').textContent = 'Speaking…';
             voiceSkillsMarkTurnStart();
             await speakAIResponse(greeting);
             voiceSkillsMarkTurnEnd();
-            listenToRAGina();
+            setTimeout(listenToRAGina, 600);
         }, 1200);
     }
 
     function listenToRAGina() {
-        if (!raginaCallActive || raginaIsMuted || isSpeaking || raginaRecognition) {
-            if (raginaCallActive && !raginaIsMuted && !raginaRecognition && !isSpeaking) {
+        if (!raginaCallActive || raginaIsMuted || raginaRecognition) {
+            if (raginaCallActive && !raginaIsMuted && !raginaRecognition) {
                 setTimeout(listenToRAGina, 600);
             }
             return;
         }
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) return;
+
         const rec = new SR();
         rec.continuous = false;
-        rec.interimResults = false;
+        rec.interimResults = true;      // ← enables barge-in
         rec.lang = 'en-US';
         rec.maxAlternatives = 1;
 
         rec.onresult = async (e) => {
-            if (isSpeaking) return;
-            const text = e.results[0][0].transcript;
-            if (!text.trim()) return;
-            logMsg('user', text.trim());
+            const lastResult = e.results[e.results.length - 1];
+            const transcript = (lastResult[0] && lastResult[0].transcript) || '';
 
-            // 🆕 Emotion snapshot after user speaks
-            voiceSkillsLogEmotion();
+            // BARGE-IN: user speaks while AI is speaking
+            if (isSpeaking) {
+                if (transcript.trim().length >= 2) {
+                    const elapsed = Date.now() - raginaSpeakingStartedAt;
+                    if (elapsed < BARGE_IN_GRACE_MS) return;
+
+                    console.log('⚡ Barge-in (interim):', transcript.trim());
+                    raginaBargeInCount++;
+                    voiceSkillsNotifyBargeIn();
+
+                    if (window.speechSynthesis) {
+                        try { window.speechSynthesis.cancel(); } catch (err) {}
+                    }
+                    isSpeaking = false;
+                    voiceSkillsSetSpeaking(false);
+                    showToast('✋ Go ahead — I\'m listening');
+
+                    if (raginaRecognition) {
+                        try { raginaRecognition.stop(); } catch (err) {}
+                        raginaRecognition = null;
+                    }
+                    setTimeout(listenToRAGina, 200);
+                }
+                return;
+            }
+
+            if (!lastResult.isFinal) return;
+
+            const text = transcript;
+            if (!text.trim()) return;
+
+            logMsg('user', text.trim());
+            voiceSkillsNotifySpeechEnd('recognition');
 
             if (conversationState === 0) {
                 let name = text.trim();
@@ -839,6 +786,7 @@
         };
 
         raginaRecognition = rec;
+        document.getElementById('callSubstatus').textContent = '🎤 Listening…';
         try { rec.start(); } catch (e) {
             raginaRecognition = null;
             if (raginaCallActive && !raginaIsMuted) setTimeout(listenToRAGina, 600);
@@ -849,8 +797,6 @@
         if (!raginaCallActive) return;
         raginaCallActive = false;
         isSpeaking = false;
-
-        // 🆕 Tear down VoiceSkills
         teardownRAGinaVoiceSkills();
 
         if (raginaRecognition) {
@@ -871,7 +817,6 @@
         document.querySelector('.fab-button')?.classList.remove('hidden');
         if (log) global.addHistoryEntry(log.number, log.direction, dur, log.id);
 
-        // 🆕 Summarize VoiceSkills stats
         if (raginaBargeInCount > 0 || raginaLatencySamples.length > 0) {
             const avg = raginaLatencySamples.length
                 ? Math.round(raginaLatencySamples.reduce((a, b) => a + b, 0) / raginaLatencySamples.length)
@@ -879,7 +824,6 @@
             console.log('📊 RAGina call stats — barge-ins:', raginaBargeInCount,
                 '| avg turn latency:', avg + 'ms');
         }
-
         showToast('Call with RAGina ended');
     }
 
@@ -968,17 +912,12 @@
                     attachPeerHandlers();
                     const dot = document.getElementById('headerStatusDot');
                     if (dot) dot.className = 'status-dot connecting';
-                } catch (e) {
-                    console.warn('Peer init failed:', e);
-                }
+                } catch (e) { console.warn('Peer init failed:', e); }
             }
         },
 
         reinit: function(num) {
-            if (peer) {
-                try { peer.destroy(); } catch (e) {}
-                peer = null;
-            }
+            if (peer) { try { peer.destroy(); } catch (e) {} peer = null; }
             this.init(num);
             console.log('🔄 PremCall reinit with', num);
         },
@@ -1140,7 +1079,6 @@
         getLogs,
         getLastLog: () => lastLog,
 
-        // 🆕 Expose VoiceSkills stats during/after a RAGina call
         getRAGinaStats: () => ({
             bargeIns: raginaBargeInCount,
             latencySamples: raginaLatencySamples.slice(),
