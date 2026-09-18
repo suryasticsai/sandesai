@@ -1,7 +1,7 @@
 // ============================================================
 // APP.JS – Calling Core (PeerJS, RAGina, Video, Recording,
 //          Firestore signaling, chunked file transfer,
-//          VAD-free barge-in via SpeechRecognition interimResults)
+//          VAD-free barge-in with echo rejection)
 // ============================================================
 
 (function(global) {
@@ -45,14 +45,15 @@
     let actx = null;
 
     // Barge-in / voice skills
-    const BARGE_IN_GRACE_MS = 400;
+    const BARGE_IN_GRACE_MS = 700;          // ignore mic during first 700ms of TTS (echo protection)
     let raginaSpeakingStartedAt = 0;
     let raginaTurnStartTime = 0;
     let raginaBargeInCount = 0;
     let raginaLatencySamples = [];
     let raginaVoiceSubs = [];
-    let raginaRecGen = 0;       // recognition generation guard
-    let raginaLastStartAt = 0;  // throttle recognition restarts
+    let raginaRecGen = 0;                   // recognition generation guard
+    let raginaLastStartAt = 0;              // throttle recognition restarts
+    let raginaCurrentTTSText = '';          // what the AI is currently saying (for echo rejection)
 
     function audioCtx() {
         if (!actx) {
@@ -277,24 +278,63 @@
         }
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // ECHO REJECTION
+    // Detects whether the mic picked up the AI's own voice coming
+    // back through the speaker, vs. the user actually interrupting.
+    // ═══════════════════════════════════════════════════════════
+    function isEchoOfTTS(transcript) {
+        const t = String(transcript || '').toLowerCase().trim();
+        if (!t) return true;
+        const ai = raginaCurrentTTSText;
+        if (!ai) return false;
+
+        // Whole phrase appears in AI text → echo
+        if (ai.indexOf(t) >= 0) return true;
+
+        // Word-level match: if 70%+ of what we heard is in the AI text → echo
+        const tWords = t.split(/\s+/).filter(w => w.length > 2);
+        if (tWords.length < 2) return false;
+        const aWords = ai.split(/\s+/);
+        let matches = 0;
+        tWords.forEach(w => {
+            if (aWords.some(aw => aw === w || aw.startsWith(w) || w.startsWith(aw))) matches++;
+        });
+        return (matches / tWords.length) >= 0.7;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // SPEAK AI RESPONSE — sets speaking=true for BOTH paths
+    // ═══════════════════════════════════════════════════════════
     async function speakAIResponse(text) {
         if (!raginaCallActive) return;
         if (!text) return;
 
         voiceSkillsRecordSpoken(text);
         raginaSpeakingStartedAt = Date.now();
+        raginaCurrentTTSText = String(text).toLowerCase();
 
-        if (text.length > 140 && voiceSkillsAvailable() && global.VoiceSkills.streamSpeak) {
-            try {
-                await global.VoiceSkills.streamSpeak(text, (chunk, i, total) => {
-                    console.log('🎙️ Speaking chunk', (i + 1) + '/' + total);
-                });
-                return;
-            } catch (e) {
-                console.warn('Streaming TTS failed, falling back:', e);
+        // ← Set speaking = true for BOTH streaming and non-streaming
+        isSpeaking = true;
+        voiceSkillsSetSpeaking(true);
+
+        try {
+            if (text.length > 140 && voiceSkillsAvailable() && global.VoiceSkills.streamSpeak) {
+                try {
+                    await global.VoiceSkills.streamSpeak(text, (chunk, i, total) => {
+                        console.log('🎙️ Speaking chunk', (i + 1) + '/' + total);
+                    });
+                    return;
+                } catch (e) {
+                    console.warn('Streaming TTS failed, falling back:', e);
+                }
             }
+            await speakText(text);
+        } finally {
+            isSpeaking = false;
+            raginaCurrentTTSText = '';
+            voiceSkillsSetSpeaking(false);
         }
-        await speakText(text);
     }
 
     // ---------- TTS ----------
@@ -645,6 +685,7 @@
         raginaBargeInCount = 0;
         raginaLatencySamples = [];
         raginaSpeakingStartedAt = 0;
+        raginaCurrentTTSText = '';
         raginaRecGen++;
         raginaRecognition = null;
         startLog(RAGINA_NUMBER, 'ragina', 'outgoing');
@@ -687,7 +728,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    // LISTEN — with generation guard to prevent restart storms
+    // LISTEN — with generation guard, throttle, echo rejection
     // ═══════════════════════════════════════════════════════════
     function listenToRAGina() {
         if (!raginaCallActive || raginaIsMuted) return;
@@ -725,8 +766,15 @@
             // ── BARGE-IN ──
             if (isSpeaking) {
                 const elapsed = Date.now() - raginaSpeakingStartedAt;
-                if (transcript.trim().length >= 2 && elapsed >= BARGE_IN_GRACE_MS) {
-                    console.log('⚡ Barge-in (interim):', transcript.trim());
+                const trimmed = transcript.trim();
+
+                // 🆕 Reject the AI's own voice coming back through the speaker
+                if (isEchoOfTTS(trimmed)) {
+                    return;
+                }
+
+                if (trimmed.length >= 3 && elapsed >= BARGE_IN_GRACE_MS) {
+                    console.log('⚡ Barge-in (interim):', trimmed);
                     raginaBargeInCount++;
                     voiceSkillsNotifyBargeIn();
 
@@ -734,6 +782,7 @@
                         try { window.speechSynthesis.cancel(); } catch (err) {}
                     }
                     isSpeaking = false;
+                    raginaCurrentTTSText = '';
                     voiceSkillsSetSpeaking(false);
                     showToast('✋ Go ahead — I\'m listening');
 
@@ -838,10 +887,7 @@
 
         rec.onend = () => {
             if (myGen !== raginaRecGen) return;
-            // Cleanup only — no auto-restart
             if (raginaRecognition === rec) raginaRecognition = null;
-            // If we stopped unintentionally (Chrome timed out) and nobody restarted,
-            // kick off a restart after a short delay
             if (!intentionalStop && raginaCallActive && !raginaIsMuted && !isSpeaking) {
                 setTimeout(() => {
                     if (raginaCallActive && !raginaIsMuted && !raginaRecognition) {
@@ -869,6 +915,7 @@
         raginaCallActive = false;
         isSpeaking = false;
         raginaRecGen++;         // invalidate any pending callbacks
+        raginaCurrentTTSText = '';
         teardownRAGinaVoiceSkills();
 
         if (raginaRecognition) {
