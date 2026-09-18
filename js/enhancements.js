@@ -10,6 +10,7 @@
 //   • Refresh connection
 //   • Call log sync (Firestore <-> local)
 //   • Profile lookup (name + username)
+//   • Debug console: Copy button + settings toggle
 // ================================================================
 (function () {
     'use strict';
@@ -19,9 +20,9 @@
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
     // ════════════════════════════════════════════════════════════
-    // 🆕 GOOGLE SHEETS WEBHOOK — paste your /exec URL below
+    // GOOGLE SHEETS WEBHOOK — /exec URL only, no ?pass= suffix
     // ════════════════════════════════════════════════════════════
-    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxTSk_TaCiR4xyGcANJriUuzhBQNMQUJ7YIALa_wMUsBMNGSB7kWjYAAyzXG1u5NjAx/exec?pass=sandesai-admin-2026';
+    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxTSk_TaCiR4xyGcANJriUuzhBQNMQUJ7YIALa_wMUsBMNGSB7kWjYAAyzXG1u5NjAx/exec';
     const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
 
     let bootHadInvite = false;
@@ -80,16 +81,36 @@
     window.escapeHtml = escapeHtml;
 
     // ────────────────────────────────────────────────────────────
-    // 2b. 🆕 SEND REGISTRATION TO GOOGLE SHEET
-    //     Fire-and-forget — never blocks the UI, never throws
+    // 2b. SEND REGISTRATION TO GOOGLE SHEET
     // ────────────────────────────────────────────────────────────
+    function waitForAuthUid(maxMs) {
+        return new Promise((resolve) => {
+            const start = Date.now();
+            const tick = () => {
+                const u = window.auth && window.auth.currentUser;
+                if (u && u.uid) return resolve(u.uid);
+                if (Date.now() - start > maxMs) return resolve('');
+                setTimeout(tick, 150);
+            };
+            tick();
+        });
+    }
+
     async function logRegistrationToSheet(name, username, phone) {
         if (!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('PASTE_YOUR') === 0) {
             console.warn('📊 Sheet webhook URL not configured');
             return;
         }
+
+        const uid = await waitForAuthUid(8000);
+
+        let finalUsername = username || '';
         try {
-            // Use text/plain + no-cors to avoid CORS preflight with Apps Script
+            const stored = JSON.parse(localStorage.getItem('neonUser') || '{}');
+            if (stored.userid) finalUsername = stored.userid;
+        } catch (e) {}
+
+        try {
             await fetch(SHEET_WEBHOOK_URL, {
                 method: 'POST',
                 mode: 'no-cors',
@@ -97,21 +118,20 @@
                 body: JSON.stringify({
                     secret: SHEET_WEBHOOK_SECRET,
                     name: name || '',
-                    username: username || '',
+                    username: finalUsername,
                     phone: phone || '',
-                    uid: (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '',
+                    uid: uid || '',
                 }),
             });
-            console.log('📊 Registration sent to Google Sheet');
+            console.log('📊 Registration sent to Sheet. UID:', uid || '(none)');
         } catch (e) {
-            // Never surface this error — it's just analytics
             console.warn('📊 Sheet notification failed:', e);
         }
     }
     window.logRegistrationToSheet = logRegistrationToSheet;
 
     // ────────────────────────────────────────────────────────────
-    // 3. SHARE INVITE — any app, no duplicate URL
+    // 3. SHARE INVITE
     // ────────────────────────────────────────────────────────────
     async function shareInviteForPeer(peer) {
         if (!peer) { window.showToast && showToast('No contact selected'); return; }
@@ -186,9 +206,10 @@
     // ────────────────────────────────────────────────────────────
     // 4. SHARED REGISTRATION CORE
     // ────────────────────────────────────────────────────────────
-    async function _finishRegistration(name, phone) {
-        const userid = (name.toLowerCase().replace(/\s+/g, '') || 'user') +
-                       '_' + Math.floor(1000 + Math.random() * 9000);
+    async function _finishRegistration(name, phone, preferredUserid) {
+        const userid = preferredUserid ||
+            ((name.toLowerCase().replace(/\s+/g, '') || 'user') +
+             '_' + Math.floor(1000 + Math.random() * 9000));
 
         const userData = { name, userid, phone, registered: true, status: 'online' };
         localStorage.setItem('neonUser', JSON.stringify(userData));
@@ -220,7 +241,7 @@
             if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
         }, 1200);
 
-        // 🆕 Log to Google Sheet (fire-and-forget)
+        // Log to Google Sheet
         logRegistrationToSheet(name, userid, phone);
 
         // Update UI bits
@@ -235,7 +256,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 5. INVITE WELCOME OVERLAY (phone + OTP + name)
+    // 5. INVITE WELCOME OVERLAY
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         document.getElementById('inviteWelcomeOverlay')?.remove();
@@ -274,7 +295,6 @@
                     ${subtitle}
                 </div>
 
-                <!-- Phone -->
                 <div style="margin-bottom:14px;text-align:left;">
                     <label style="font-size:0.72rem;color:#7a89a8;
                                   text-transform:uppercase;letter-spacing:0.05em;">
@@ -299,7 +319,6 @@
                     </div>
                 </div>
 
-                <!-- OTP -->
                 <div style="margin-bottom:14px;text-align:left;">
                     <label style="font-size:0.72rem;color:#7a89a8;
                                   text-transform:uppercase;letter-spacing:0.05em;">
@@ -328,7 +347,6 @@
                     </div>
                 </div>
 
-                <!-- Name -->
                 <div style="margin-bottom:16px;text-align:left;">
                     <label style="font-size:0.72rem;color:#7a89a8;
                                   text-transform:uppercase;letter-spacing:0.05em;">
@@ -360,7 +378,6 @@
         `;
         document.body.appendChild(overlay);
 
-        // Send OTP
         document.getElementById('inviteSendOtp').addEventListener('click', () => {
             const phone = document.getElementById('invitePhone').value.trim();
             if (!phone || !/^\d{10}$/.test(phone)) {
@@ -371,7 +388,6 @@
             document.getElementById('inviteOtp').value = '1234';
         });
 
-        // Join
         document.getElementById('inviteJoinBtn').addEventListener('click', async () => {
             const name = (document.getElementById('inviteName').value || '').trim();
             const phone = (document.getElementById('invitePhone').value || '').trim();
@@ -467,7 +483,7 @@
     window.openChatWhenReady = openChatWhenReady;
 
     // ────────────────────────────────────────────────────────────
-    // 8. UNIFIED WELCOME POPUP (logo hero + heart badge + sparkles)
+    // 8. UNIFIED WELCOME POPUP
     // ────────────────────────────────────────────────────────────
     function showJoinWelcomePopup(name, variant) {
         document.getElementById('welcomePopup')?.remove();
@@ -855,14 +871,17 @@
     setTimeout(injectInviteButton, 500);
 
     // ────────────────────────────────────────────────────────────
-    // 14. INJECT "Invite friends" + "Refresh" INTO SETTINGS
+    // 14. INJECT SETTINGS ROWS
+    //     (Invite friends / Refresh connection / Debug console)
     // ────────────────────────────────────────────────────────────
     function injectSettingsButtons() {
         const settingsSection = document.querySelector('.settings-section');
         if (!settingsSection) return;
 
         const logoutBtn = settingsSection.querySelector('.logout-btn');
+        if (!logoutBtn) return;
 
+        // ── Invite friends ──
         if (!document.getElementById('inviteFriendsBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -876,6 +895,7 @@
             settingsSection.insertBefore(row, logoutBtn);
         }
 
+        // ── Refresh connection ──
         if (!document.getElementById('refreshConnectionBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -888,21 +908,118 @@
             row.querySelector('#refreshConnectionBtn').addEventListener('click', window.refreshConnection);
             settingsSection.insertBefore(row, logoutBtn);
         }
+
+        // ── 🆕 Debug console toggle ──
+        if (!document.getElementById('debugConsoleToggle')) {
+            const saved = localStorage.getItem('debugConsoleVisible');
+            const visible = saved === null ? true : saved === 'true';
+
+            const row = document.createElement('div');
+            row.className = 'setting-item';
+            row.innerHTML = `
+                <span><i class="fas fa-terminal"></i> Debug console</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="debugConsoleToggle" ${visible ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
+            settingsSection.insertBefore(row, logoutBtn);
+
+            const toggle = row.querySelector('#debugConsoleToggle');
+            const debugFab = document.getElementById('debugToggle');
+
+            // Apply initial state
+            if (debugFab) debugFab.style.display = visible ? '' : 'none';
+
+            toggle.addEventListener('change', function () {
+                const isVisible = this.checked;
+                if (debugFab) debugFab.style.display = isVisible ? '' : 'none';
+                localStorage.setItem('debugConsoleVisible', String(isVisible));
+                if (!isVisible) {
+                    const consoleEl = document.getElementById('debugConsole');
+                    if (consoleEl) consoleEl.style.transform = 'translateY(100%)';
+                    const dt = document.getElementById('debugToggle');
+                    if (dt) dt.innerHTML = '<i class="fas fa-terminal"></i>';
+                }
+                window.showToast && showToast(isVisible ? '🐞 Debug button shown' : '🐞 Debug button hidden');
+            });
+        }
     }
 
-    setTimeout(injectSettingsButtons, 600);
+    // ────────────────────────────────────────────────────────────
+    // 15. DEBUG CONSOLE — COPY BUTTON
+    // ────────────────────────────────────────────────────────────
+    function injectConsoleCopyButton() {
+        const clearBtn = document.getElementById('consoleClear');
+        if (!clearBtn) return;
+        const actions = clearBtn.parentNode;
+        if (!actions || document.getElementById('consoleCopy')) return;
 
+        const copyBtn = document.createElement('button');
+        copyBtn.id = 'consoleCopy';
+        copyBtn.textContent = '📋 Copy';
+        copyBtn.style.cssText = 'background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;padding:2px 10px;border-radius:8px;font-size:10px;cursor:pointer;font-family:inherit;';
+
+        copyBtn.addEventListener('click', async () => {
+            const body = document.getElementById('consoleBody');
+            if (!body) return;
+
+            const text = (body.innerText || body.textContent || '').trim();
+            if (!text) {
+                window.showToast && showToast('Console is empty');
+                return;
+            }
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+                copyBtn.textContent = '✅ Copied';
+                setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+                window.showToast && showToast('📋 Console copied to clipboard');
+            } catch (e) {
+                window.showToast && showToast('Copy failed: ' + e.message);
+            }
+        });
+
+        actions.insertBefore(copyBtn, clearBtn);
+    }
+
+    // Initial injections after app has rendered
+    setTimeout(injectSettingsButtons, 600);
+    setTimeout(() => {
+        injectConsoleCopyButton();
+        injectSettingsButtons();
+    }, 900);
+    setTimeout(injectConsoleCopyButton, 2000);
+    setTimeout(injectConsoleCopyButton, 4000);
+
+    // Re-inject when user switches to Me tab (settings may re-render)
     const origSwitchTab = window.switchTab;
     if (typeof origSwitchTab === 'function') {
         window.switchTab = function (tab) {
             const result = origSwitchTab.apply(this, arguments);
-            if (tab === 'me') setTimeout(injectSettingsButtons, 100);
+            if (tab === 'me') {
+                setTimeout(() => {
+                    injectSettingsButtons();
+                    injectConsoleCopyButton();
+                }, 150);
+            }
             return result;
         };
     }
 
     // ────────────────────────────────────────────────────────────
-    // 15. FIRST-RUN REGISTRATION GATE
+    // 16. FIRST-RUN REGISTRATION GATE
     // ────────────────────────────────────────────────────────────
     function isRegistered() {
         return !!localStorage.getItem('premCallRegisteredAt') &&
@@ -1125,23 +1242,7 @@
             submitBtn.style.opacity = '0.7';
             submitBtn.textContent = 'Registering…';
 
-            // Save user-chosen username (overrides auto-generated)
-            const userData = { name, userid, phone, registered: true, status: 'online' };
-            localStorage.setItem('neonUser', JSON.stringify(userData));
-
-            await _finishRegistration(name, phone);
-
-            // Overwrite the auto-generated username with the one they chose
-            try {
-                const u = JSON.parse(localStorage.getItem('neonUser') || '{}');
-                u.userid = userid;
-                localStorage.setItem('neonUser', JSON.stringify(u));
-                if (window.db && phone) {
-                    window.db.collection('profiles').doc(phone).set({
-                        username: userid
-                    }, { merge: true }).catch(() => {});
-                }
-            } catch (e) {}
+            await _finishRegistration(name, phone, userid);
 
             const screenEl = document.getElementById('bootRegScreen');
             if (screenEl) {
@@ -1184,7 +1285,7 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 16. BOOT
+    // 17. BOOT
     // ────────────────────────────────────────────────────────────
     function onBoot() {
         const params = new URLSearchParams(location.search);
@@ -1200,5 +1301,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets');
+    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug tools');
 })();
