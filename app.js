@@ -44,13 +44,15 @@
 
     let actx = null;
 
-    // Barge-in state
-    const BARGE_IN_GRACE_MS = 350;
+    // Barge-in / voice skills
+    const BARGE_IN_GRACE_MS = 400;
     let raginaSpeakingStartedAt = 0;
     let raginaTurnStartTime = 0;
     let raginaBargeInCount = 0;
     let raginaLatencySamples = [];
     let raginaVoiceSubs = [];
+    let raginaRecGen = 0;       // recognition generation guard
+    let raginaLastStartAt = 0;  // throttle recognition restarts
 
     function audioCtx() {
         if (!actx) {
@@ -643,6 +645,8 @@
         raginaBargeInCount = 0;
         raginaLatencySamples = [];
         raginaSpeakingStartedAt = 0;
+        raginaRecGen++;
+        raginaRecognition = null;
         startLog(RAGINA_NUMBER, 'ragina', 'outgoing');
         document.getElementById('callTranscript').innerHTML = '<div class="empty-hint">Live transcript will appear here…</div>';
         const avatar = document.getElementById('callAvatar');
@@ -676,36 +680,52 @@
             voiceSkillsMarkTurnStart();
             await speakAIResponse(greeting);
             voiceSkillsMarkTurnEnd();
-            setTimeout(listenToRAGina, 600);
+            setTimeout(() => {
+                if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+            }, 700);
         }, 1200);
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // LISTEN — with generation guard to prevent restart storms
+    // ═══════════════════════════════════════════════════════════
     function listenToRAGina() {
-        if (!raginaCallActive || raginaIsMuted || raginaRecognition) {
-            if (raginaCallActive && !raginaIsMuted && !raginaRecognition) {
-                setTimeout(listenToRAGina, 600);
-            }
-            return;
-        }
+        if (!raginaCallActive || raginaIsMuted) return;
+        if (raginaRecognition) return;   // already listening
+
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) return;
 
+        // Throttle — minimum 400ms between start attempts
+        const now = Date.now();
+        if (now - raginaLastStartAt < 400) {
+            setTimeout(() => {
+                if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+            }, 400);
+            return;
+        }
+        raginaLastStartAt = now;
+
+        const myGen = ++raginaRecGen;
+
         const rec = new SR();
         rec.continuous = false;
-        rec.interimResults = true;      // ← enables barge-in
+        rec.interimResults = true;
         rec.lang = 'en-US';
         rec.maxAlternatives = 1;
 
+        let intentionalStop = false;
+
         rec.onresult = async (e) => {
+            if (myGen !== raginaRecGen) return;
+
             const lastResult = e.results[e.results.length - 1];
             const transcript = (lastResult[0] && lastResult[0].transcript) || '';
 
-            // BARGE-IN: user speaks while AI is speaking
+            // ── BARGE-IN ──
             if (isSpeaking) {
-                if (transcript.trim().length >= 2) {
-                    const elapsed = Date.now() - raginaSpeakingStartedAt;
-                    if (elapsed < BARGE_IN_GRACE_MS) return;
-
+                const elapsed = Date.now() - raginaSpeakingStartedAt;
+                if (transcript.trim().length >= 2 && elapsed >= BARGE_IN_GRACE_MS) {
                     console.log('⚡ Barge-in (interim):', transcript.trim());
                     raginaBargeInCount++;
                     voiceSkillsNotifyBargeIn();
@@ -717,25 +737,32 @@
                     voiceSkillsSetSpeaking(false);
                     showToast('✋ Go ahead — I\'m listening');
 
-                    if (raginaRecognition) {
-                        try { raginaRecognition.stop(); } catch (err) {}
-                        raginaRecognition = null;
-                    }
-                    setTimeout(listenToRAGina, 200);
+                    intentionalStop = true;
+                    raginaRecognition = null;
+                    try { rec.stop(); } catch (err) {}
+
+                    setTimeout(() => {
+                        if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                    }, 600);
                 }
                 return;
             }
 
             if (!lastResult.isFinal) return;
 
-            const text = transcript;
-            if (!text.trim()) return;
+            const text = transcript.trim();
+            if (!text) return;
 
-            logMsg('user', text.trim());
+            // Stop this recognizer BEFORE processing (prevents stacking)
+            intentionalStop = true;
+            raginaRecognition = null;
+            try { rec.stop(); } catch (err) {}
+
+            logMsg('user', text);
             voiceSkillsNotifySpeechEnd('recognition');
 
             if (conversationState === 0) {
-                let name = text.trim();
+                let name = text;
                 const stopWords = ['um', 'uh', 'my name is', 'i am', "i'm"];
                 for (let sw of stopWords) {
                     if (name.toLowerCase().startsWith(sw)) {
@@ -751,7 +778,9 @@
                 voiceSkillsMarkTurnStart();
                 await speakAIResponse(r);
                 voiceSkillsMarkTurnEnd();
-                setTimeout(listenToRAGina, 800);
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                }, 800);
             } else {
                 document.getElementById('callSubstatus').textContent = 'RAGina is thinking…';
                 const ans = await askRAGina(text);
@@ -761,35 +790,77 @@
                 voiceSkillsMarkTurnStart();
                 await speakAIResponse(ans);
                 voiceSkillsMarkTurnEnd();
-                setTimeout(listenToRAGina, 800);
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                }, 800);
             }
         };
 
         rec.onerror = (e) => {
-            console.warn('RAGina recognition error:', e.error);
+            if (myGen !== raginaRecGen) return;
+
+            // Silent aborts — expected
+            if (e.error === 'aborted') return;
+
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-                showToast('Microphone denied. Ending call.');
-                endRAGinaCall();
+                console.warn('🎤 Mic busy — waiting 3s for Chrome to release it');
+                raginaRecognition = null;
+                showToast('⏸️ Mic busy — retrying…');
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                }, 3000);
                 return;
             }
-            raginaRecognition = null;
-            if (raginaCallActive && !raginaIsMuted && !isSpeaking) {
-                setTimeout(listenToRAGina, 600);
+
+            if (e.error === 'network') {
+                console.warn('🌐 Speech server hiccup — retrying in 2s');
+                raginaRecognition = null;
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                }, 2000);
+                return;
             }
+
+            if (e.error === 'no-speech') {
+                raginaRecognition = null;
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+                }, 300);
+                return;
+            }
+
+            console.warn('RAGina recognition error:', e.error);
+            raginaRecognition = null;
+            setTimeout(() => {
+                if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+            }, 800);
         };
 
         rec.onend = () => {
-            raginaRecognition = null;
-            if (raginaCallActive && !raginaIsMuted && !isSpeaking) {
-                setTimeout(listenToRAGina, 500);
+            if (myGen !== raginaRecGen) return;
+            // Cleanup only — no auto-restart
+            if (raginaRecognition === rec) raginaRecognition = null;
+            // If we stopped unintentionally (Chrome timed out) and nobody restarted,
+            // kick off a restart after a short delay
+            if (!intentionalStop && raginaCallActive && !raginaIsMuted && !isSpeaking) {
+                setTimeout(() => {
+                    if (raginaCallActive && !raginaIsMuted && !raginaRecognition) {
+                        listenToRAGina();
+                    }
+                }, 500);
             }
         };
 
         raginaRecognition = rec;
         document.getElementById('callSubstatus').textContent = '🎤 Listening…';
-        try { rec.start(); } catch (e) {
+
+        try {
+            rec.start();
+        } catch (e) {
             raginaRecognition = null;
-            if (raginaCallActive && !raginaIsMuted) setTimeout(listenToRAGina, 600);
+            setTimeout(() => {
+                if (raginaCallActive && !raginaIsMuted) listenToRAGina();
+            }, 1500);
         }
     }
 
@@ -797,6 +868,7 @@
         if (!raginaCallActive) return;
         raginaCallActive = false;
         isSpeaking = false;
+        raginaRecGen++;         // invalidate any pending callbacks
         teardownRAGinaVoiceSkills();
 
         if (raginaRecognition) {
@@ -1172,7 +1244,6 @@
 
     global.PremCall = PremCall;
 
-    // Recover interrupted log
     (function recover() {
         try {
             const raw = localStorage.getItem('premCallActiveLog');
