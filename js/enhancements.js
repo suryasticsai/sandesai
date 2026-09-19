@@ -22,7 +22,7 @@
     // ════════════════════════════════════════════════════════════
     // GOOGLE SHEETS WEBHOOK — /exec URL only, no ?pass= suffix
     // ════════════════════════════════════════════════════════════
-    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxTSk_TaCiR4xyGcANJriUuzhBQNMQUJ7YIALa_wMUsBMNGSB7kWjYAAyzXG1u5NjAx/exec';
+    const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
     const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
 
     let bootHadInvite = false;
