@@ -11,18 +11,19 @@
 //   • Call log sync (Firestore <-> local)
 //   • Profile lookup (name + username)
 //   • Debug console: Copy button + settings toggle
+//   • RAGina memory toggles (memory + chat context)
+//   • Auto-loads raginaMemory.js
 // ================================================================
 (function () {
     'use strict';
 
-    // ── Constants ──
     const INVITE_SECRET = 'sandesai-invite-v1-2026';
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
     // ════════════════════════════════════════════════════════════
-    // GOOGLE SHEETS WEBHOOK — /exec URL only, no ?pass= suffix
+    // Apps Script /exec URL — updated to v5-memory
     // ════════════════════════════════════════════════════════════
-    const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
+    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
     const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
 
     let bootHadInvite = false;
@@ -81,7 +82,7 @@
     window.escapeHtml = escapeHtml;
 
     // ────────────────────────────────────────────────────────────
-    // 2b. SEND REGISTRATION TO GOOGLE SHEET
+    // 2b. GOOGLE SHEET REGISTRATION LOG
     // ────────────────────────────────────────────────────────────
     function waitForAuthUid(maxMs) {
         return new Promise((resolve) => {
@@ -101,7 +102,6 @@
             console.warn('📊 Sheet webhook URL not configured');
             return;
         }
-
         const uid = await waitForAuthUid(8000);
 
         let finalUsername = username || '';
@@ -217,7 +217,6 @@
         localStorage.setItem('premCallVerified', 'true');
         localStorage.setItem('premCallRegisteredAt', String(Date.now()));
 
-        // Init PeerJS
         if (window.PremCall) {
             try {
                 if (window.PremCall.reinit) window.PremCall.reinit(phone);
@@ -225,12 +224,10 @@
             } catch (e) { console.warn('PremCall init failed:', e); }
         }
 
-        // Init Firebase
         if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') {
             window.initFirebaseMessaging();
         }
 
-        // Publish profile + start sync
         setTimeout(() => {
             if (window.db && phone) {
                 window.db.collection('profiles').doc(phone).set({
@@ -241,10 +238,8 @@
             if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
         }, 1200);
 
-        // Log to Google Sheet
         logRegistrationToSheet(name, userid, phone);
 
-        // Update UI bits
         const mn = document.getElementById('myNumberDisplay');
         if (mn) mn.textContent = phone;
         const dot = document.getElementById('headerStatusDot');
@@ -483,7 +478,7 @@
     window.openChatWhenReady = openChatWhenReady;
 
     // ────────────────────────────────────────────────────────────
-    // 8. UNIFIED WELCOME POPUP
+    // 8. WELCOME / WRONG-INVITE POPUP
     // ────────────────────────────────────────────────────────────
     function showJoinWelcomePopup(name, variant) {
         document.getElementById('welcomePopup')?.remove();
@@ -517,12 +512,7 @@
                     100% { background-position:  200% center; }
                 }
                 .wpop-shimmer {
-                    background: linear-gradient(
-                        90deg,
-                        #a78bfa 0%,
-                        #ffffff 50%,
-                        #a78bfa 100%
-                    );
+                    background: linear-gradient(90deg,#a78bfa 0%,#ffffff 50%,#a78bfa 100%);
                     background-size: 200% auto;
                     -webkit-background-clip: text;
                     -webkit-text-fill-color: transparent;
@@ -534,7 +524,6 @@
         }
 
         const isWelcome = variant === 'welcome';
-
         const heading = isWelcome
             ? `Welcome, ${escapeHtml(name || 'friend')}!`
             : `Welcome aboard, ${escapeHtml(name || 'friend')}!`;
@@ -547,12 +536,8 @@
                so we didn't connect you with its sender. But you're all set.
                Enjoy Sandesai — start your own chats and invite friends anytime.`;
 
-        const heartGlow = isWelcome
-            ? 'rgba(236,72,153,0.55)'
-            : 'rgba(110,231,255,0.5)';
-        const logoGlow = isWelcome
-            ? 'rgba(139,92,246,0.5)'
-            : 'rgba(110,231,255,0.4)';
+        const heartGlow = isWelcome ? 'rgba(236,72,153,0.55)' : 'rgba(110,231,255,0.5)';
+        const logoGlow  = isWelcome ? 'rgba(139,92,246,0.5)'  : 'rgba(110,231,255,0.4)';
 
         const popup = document.createElement('div');
         popup.id = 'welcomePopup';
@@ -590,13 +575,10 @@
 
                 <div style="position:relative; width:132px; height:132px;
                             margin:6px auto 10px;">
-
                     <div style="position:absolute; inset:0; border-radius:50%;
-                                background: radial-gradient(circle,
-                                    ${logoGlow} 0%, transparent 72%);
+                                background: radial-gradient(circle,${logoGlow} 0%, transparent 72%);
                                 animation: wpopGlowPulse 1.8s ease-in-out infinite;
                                 filter: blur(10px);"></div>
-
                     <span style="position:absolute; left:-6px; top:24%;
                                  font-size:13px; color:#c4b5fd;
                                  animation: wpopSparkle 2.6s ease-in-out infinite;
@@ -669,13 +651,8 @@
         setTimeout(() => { if (popup.parentNode) dismiss(); }, isWelcome ? 7500 : 9000);
     }
 
-    function showWelcomePopup(name) {
-        showJoinWelcomePopup(name, 'welcome');
-    }
-
-    function showWrongInvitePopup(name) {
-        showJoinWelcomePopup(name, 'wrong-invite');
-    }
+    function showWelcomePopup(name) { showJoinWelcomePopup(name, 'welcome'); }
+    function showWrongInvitePopup(name) { showJoinWelcomePopup(name, 'wrong-invite'); }
 
     window.showJoinWelcomePopup = showJoinWelcomePopup;
     window.showWelcomePopup = showWelcomePopup;
@@ -829,12 +806,11 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 13. INJECT "Invite" BUTTON INTO CONTACT PROFILE
+    // 13. INJECT INVITE BUTTON INTO CONTACT PROFILE
     // ────────────────────────────────────────────────────────────
     function injectInviteButton() {
         const profileOverlay = document.getElementById('contactProfileOverlay');
         if (!profileOverlay || profileOverlay.style.display === 'none') return;
-
         if (document.getElementById('contactProfileInvite')) return;
 
         const msgBtn = document.getElementById('contactProfileMessage');
@@ -872,7 +848,7 @@
 
     // ────────────────────────────────────────────────────────────
     // 14. INJECT SETTINGS ROWS
-    //     (Invite friends / Refresh connection / Debug console)
+    //     Invite friends / Refresh / Debug console / Memory / Chats
     // ────────────────────────────────────────────────────────────
     function injectSettingsButtons() {
         const settingsSection = document.querySelector('.settings-section');
@@ -909,7 +885,51 @@
             settingsSection.insertBefore(row, logoutBtn);
         }
 
-        // ── 🆕 Debug console toggle ──
+        // ── RAGina memory toggle ──
+        if (!document.getElementById('raginaMemoryToggle')) {
+            const consent = (window.RaginaMemory && window.RaginaMemory.getConsent()) || { memory: false };
+            const row = document.createElement('div');
+            row.className = 'setting-item';
+            row.innerHTML = `
+                <span><i class="fas fa-brain"></i> RAGina memory</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="raginaMemoryToggle" ${consent.memory ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
+            settingsSection.insertBefore(row, logoutBtn);
+            row.querySelector('#raginaMemoryToggle').addEventListener('change', function () {
+                const c = (window.RaginaMemory && window.RaginaMemory.getConsent()) || {};
+                c.memory = this.checked;
+                c.at = Date.now();
+                if (window.RaginaMemory) window.RaginaMemory.setConsent(c);
+                window.showToast && showToast(this.checked ? '🧠 RAGina will remember' : '🧠 Memory off');
+            });
+        }
+
+        // ── Chat context toggle ──
+        if (!document.getElementById('raginaChatContextToggle')) {
+            const consent = (window.RaginaMemory && window.RaginaMemory.getConsent()) || { chats: false };
+            const row = document.createElement('div');
+            row.className = 'setting-item';
+            row.innerHTML = `
+                <span><i class="fas fa-comments"></i> Use chats as context</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="raginaChatContextToggle" ${consent.chats ? 'checked' : ''} />
+                    <span class="toggle-slider"></span>
+                </label>
+            `;
+            settingsSection.insertBefore(row, logoutBtn);
+            row.querySelector('#raginaChatContextToggle').addEventListener('change', function () {
+                const c = (window.RaginaMemory && window.RaginaMemory.getConsent()) || {};
+                c.chats = this.checked;
+                c.at = Date.now();
+                if (window.RaginaMemory) window.RaginaMemory.setConsent(c);
+                window.showToast && showToast(this.checked ? '💬 Chat context enabled' : '💬 Chat context off');
+            });
+        }
+
+        // ── Debug console toggle ──
         if (!document.getElementById('debugConsoleToggle')) {
             const saved = localStorage.getItem('debugConsoleVisible');
             const visible = saved === null ? true : saved === 'true';
@@ -927,8 +947,6 @@
 
             const toggle = row.querySelector('#debugConsoleToggle');
             const debugFab = document.getElementById('debugToggle');
-
-            // Apply initial state
             if (debugFab) debugFab.style.display = visible ? '' : 'none';
 
             toggle.addEventListener('change', function () {
@@ -947,7 +965,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 15. DEBUG CONSOLE — COPY BUTTON
+    // 15. COPY BUTTON IN DEBUG CONSOLE
     // ────────────────────────────────────────────────────────────
     function injectConsoleCopyButton() {
         const clearBtn = document.getElementById('consoleClear');
@@ -963,13 +981,8 @@
         copyBtn.addEventListener('click', async () => {
             const body = document.getElementById('consoleBody');
             if (!body) return;
-
             const text = (body.innerText || body.textContent || '').trim();
-            if (!text) {
-                window.showToast && showToast('Console is empty');
-                return;
-            }
-
+            if (!text) { window.showToast && showToast('Console is empty'); return; }
             try {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(text);
@@ -994,7 +1007,21 @@
         actions.insertBefore(copyBtn, clearBtn);
     }
 
-    // Initial injections after app has rendered
+    // ────────────────────────────────────────────────────────────
+    // 16. AUTO-LOAD raginaMemory.js
+    // ────────────────────────────────────────────────────────────
+    (function loadRaginaMemory() {
+        if (document.querySelector('script[src*="raginaMemory.js"]')) return;
+        const s = document.createElement('script');
+        s.src = 'js/raginaMemory.js';
+        s.onload = () => console.log('✅ raginaMemory.js auto-loaded');
+        s.onerror = () => console.warn('⚠️ Could not load raginaMemory.js');
+        document.body.appendChild(s);
+    })();
+
+    // ────────────────────────────────────────────────────────────
+    // Initial injections
+    // ────────────────────────────────────────────────────────────
     setTimeout(injectSettingsButtons, 600);
     setTimeout(() => {
         injectConsoleCopyButton();
@@ -1003,7 +1030,6 @@
     setTimeout(injectConsoleCopyButton, 2000);
     setTimeout(injectConsoleCopyButton, 4000);
 
-    // Re-inject when user switches to Me tab (settings may re-render)
     const origSwitchTab = window.switchTab;
     if (typeof origSwitchTab === 'function') {
         window.switchTab = function (tab) {
@@ -1019,7 +1045,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 16. FIRST-RUN REGISTRATION GATE
+    // 17. FIRST-RUN REGISTRATION GATE
     // ────────────────────────────────────────────────────────────
     function isRegistered() {
         return !!localStorage.getItem('premCallRegisteredAt') &&
@@ -1285,7 +1311,7 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 17. BOOT
+    // 18. BOOT
     // ────────────────────────────────────────────────────────────
     function onBoot() {
         const params = new URLSearchParams(location.search);
@@ -1301,5 +1327,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug tools');
+    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug tools, memory');
 })();
