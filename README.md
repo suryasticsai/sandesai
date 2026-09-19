@@ -263,9 +263,8 @@ He specialises in:
 
 ### Quick Start
 1. Clone the repository:
-   ```bash
+   ```
    git clone https://github.com/suryasticsai/sandesai.git
-```
 
 2. Open index.html in your browser — or deploy to GitHub Pages for a live URL
 3. Register with a 10-digit phone number (OTP demo: 1234)
