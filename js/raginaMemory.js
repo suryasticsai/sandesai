@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxTSk_TaCiR4xyGcANJriUuzhBQNMQUJ7YIALa_wMUsBMNGSB7kWjYAAyzXG1u5NjAx/exec';
+    const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
     const SHEET_SECRET  = 'sandesai-webhook-2026';
     const RAGINA_ASK    = 'https://ragina-crawler-ragina.vercel.app/api/ask';
 
