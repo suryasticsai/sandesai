@@ -1,7 +1,3 @@
-📝 Updated README.md — full advanced features
-
-Here's the complete, production-grade README with everything we've built. Replace your existing README.md with this.
-
 ```markdown
 <div align="center">
   <img src="sandesai-logo.png" alt="Sandesai Logo" width="120" height="120" style="border-radius: 50%;" />
@@ -362,6 +358,3 @@ Built with ♥ by Surya
 ⬆ Back to top
 
 </div>
-```
-
----
