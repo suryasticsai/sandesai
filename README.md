@@ -1,4 +1,3 @@
-```
 <div align="center">
   <img src="sandesai-logo.png" alt="Sandesai Logo" width="120" height="120" style="border-radius: 50%;" />
   <h1>🧠 Sandesai — AI Messenger</h1>
