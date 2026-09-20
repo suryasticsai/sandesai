@@ -1,17 +1,19 @@
 // ================================================================
 // js/enhancements.js
 // Adds NEW features on top of script.js without touching it:
-//   • First-run registration gate
-//   • Invite links (long URL, no external APIs)
-//   • Invite overlay with phone + OTP + name
-//   • Trap-mode: wrong-number invites register user but don't connect
-//   • Unified welcome popup (logo hero + beating heart badge)
-//   • Google Sheets registration log (via Apps Script webhook)
+//   • First-run registration gate (name + username + phone + email + OTP)
+//   • Email OTP send / verify (real, via Apps Script)
+//   • Duplicate username / phone check
+//   • Force update banner (from health endpoint)
+//   • Invite links + auto-registration
+//   • Trap-mode invites
+//   • Welcome popup with animated heart
+//   • Google Sheets logging (registrations, conversations)
 //   • Refresh connection
-//   • Call log sync (Firestore <-> local)
-//   • Profile lookup (name + username)
+//   • Call log sync
+//   • Profile lookup
 //   • Debug console: Copy button + settings toggle
-//   • RAGina memory toggles (memory + chat context)
+//   • RAGina memory toggles
 //   • Auto-loads raginaMemory.js
 // ================================================================
 (function () {
@@ -21,12 +23,18 @@
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
     // ════════════════════════════════════════════════════════════
-    // Apps Script /exec URL — updated to v5-memory
+    // CONFIG — read from config.js, with fallback
     // ════════════════════════════════════════════════════════════
-    const SHEET_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
-    const SHEET_WEBHOOK_SECRET = 'sandesai-webhook-2026';
+    const CFG = window.SANDESAI || {};
+    const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL ||
+        'https://script.google.com/macros/s/AKfycbwgv2ko4WgWQOJzKh3h0VdXZsETaZIHF7cM0Dxv5PM/exec';
+    const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
+
+    // Local app version — compared against minAppVersion from backend
+    const LOCAL_APP_VERSION = '0.4';
 
     let bootHadInvite = false;
+    let forceUpdateShown = false;
 
     // ────────────────────────────────────────────────────────────
     // 1. INVITE TOKEN HELPERS
@@ -82,7 +90,87 @@
     window.escapeHtml = escapeHtml;
 
     // ────────────────────────────────────────────────────────────
-    // 2b. GOOGLE SHEET REGISTRATION LOG
+    // 3. FORCE UPDATE CHECK
+    // ────────────────────────────────────────────────────────────
+    function versionLess(a, b) {
+        const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+        const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const va = pa[i] || 0;
+            const vb = pb[i] || 0;
+            if (va < vb) return true;
+            if (va > vb) return false;
+        }
+        return false;
+    }
+
+    function showForceUpdateBanner(message) {
+        if (forceUpdateShown) return;
+        forceUpdateShown = true;
+        document.getElementById('forceUpdateBanner')?.remove();
+
+        const banner = document.createElement('div');
+        banner.id = 'forceUpdateBanner';
+        banner.style.cssText = `
+            position: fixed; inset: 0; z-index: 95000;
+            background: rgba(8,6,20,0.96);
+            backdrop-filter: blur(20px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px;
+            font-family: 'Inter', sans-serif;
+            color: #eef0f5;
+        `;
+        banner.innerHTML = `
+            <div style="max-width:360px; width:100%; text-align:center;
+                        background: rgba(18,16,36,0.96);
+                        border: 1px solid rgba(139,92,246,0.3);
+                        border-radius: 24px; padding: 32px 24px;
+                        box-shadow: 0 40px 100px rgba(0,0,0,0.8);">
+                <div style="font-size: 2.4rem; margin-bottom: 12px;">🚀</div>
+                <div style="font-size: 1.2rem; font-weight: 700; margin-bottom: 10px;">
+                    Update required
+                </div>
+                <div style="font-size: 0.85rem; color: #a5b3d0; line-height: 1.5;
+                            margin-bottom: 22px;">
+                    ${escapeHtml(message || 'A new version of Sandesai is available. Please refresh to continue.')}
+                </div>
+                <button id="forceUpdateBtn"
+                        style="width: 100%; padding: 14px; border-radius: 14px;
+                               border: none;
+                               background: linear-gradient(135deg, #7c3aed, #6d28d9);
+                               color: #fff; font-weight: 700; font-size: 1rem;
+                               cursor: pointer; font-family: inherit;
+                               box-shadow: 0 8px 24px rgba(139,92,246,0.4);">
+                    Refresh now
+                </button>
+            </div>
+        `;
+        document.body.appendChild(banner);
+        document.getElementById('forceUpdateBtn').addEventListener('click', () => {
+            location.reload(true);
+        });
+    }
+
+    async function checkForceUpdate() {
+        try {
+            const r = await fetch(SHEET_WEBHOOK_URL + '?type=health');
+            const data = await r.json();
+            if (!data.ok) return;
+
+            const minV = data.minAppVersion;
+            if (minV && versionLess(LOCAL_APP_VERSION, minV)) {
+                console.warn('🚨 Force update required:', LOCAL_APP_VERSION, '<', minV);
+                showForceUpdateBanner(data.updateMessage);
+                return true;
+            }
+        } catch (e) {
+            console.warn('Force update check failed:', e);
+        }
+        return false;
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // 4. REGISTRATION HELPERS
     // ────────────────────────────────────────────────────────────
     function waitForAuthUid(maxMs) {
         return new Promise((resolve) => {
@@ -98,10 +186,7 @@
     }
 
     async function logRegistrationToSheet(name, username, phone) {
-        if (!SHEET_WEBHOOK_URL || SHEET_WEBHOOK_URL.indexOf('PASTE_YOUR') === 0) {
-            console.warn('📊 Sheet webhook URL not configured');
-            return;
-        }
+        if (!SHEET_WEBHOOK_URL) return;
         const uid = await waitForAuthUid(8000);
 
         let finalUsername = username || '';
@@ -130,8 +215,74 @@
     }
     window.logRegistrationToSheet = logRegistrationToSheet;
 
+    // ── Check duplicate phone / username before registering ──
+    async function checkAvailability(username, phone) {
+        try {
+            const r = await fetch(SHEET_WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    type: 'checkAvailability',
+                    secret: SHEET_WEBHOOK_SECRET,
+                    username: username,
+                    phone: phone,
+                }),
+            });
+            // no-cors means we can't read the response — fall back to a GET
+            // We'll use the health endpoint response pattern via a separate GET
+            // for real readability:
+
+            const q = SHEET_WEBHOOK_URL +
+                '?type=checkAvailability' +
+                '&username=' + encodeURIComponent(username) +
+                '&phone=' + encodeURIComponent(phone);
+            const r2 = await fetch(q);
+            return await r2.json();
+        } catch (e) {
+            console.warn('Availability check failed:', e);
+            return { ok: true }; // assume available on failure so registration isn't blocked
+        }
+    }
+
+    // ── Send OTP via email ──
+    async function sendOtpEmail(phone, email) {
+        try {
+            await fetch(SHEET_WEBHOOK_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    type: 'sendOtp',
+                    secret: SHEET_WEBHOOK_SECRET,
+                    phone: phone,
+                    email: email,
+                }),
+            });
+            return { ok: true };
+        } catch (e) {
+            console.warn('sendOtp failed:', e);
+            return { ok: false, error: e.message };
+        }
+    }
+
+    // ── Verify OTP via GET (readable response) ──
+    async function verifyOtpEmail(phone, code) {
+        try {
+            const url = SHEET_WEBHOOK_URL +
+                '?type=checkOtp' +
+                '&phone=' + encodeURIComponent(phone) +
+                '&code=' + encodeURIComponent(code);
+            const r = await fetch(url);
+            return await r.json();
+        } catch (e) {
+            console.warn('verifyOtp failed:', e);
+            return { ok: false, error: 'network', message: 'Could not verify.' };
+        }
+    }
+
     // ────────────────────────────────────────────────────────────
-    // 3. SHARE INVITE
+    // 5. SHARE INVITE
     // ────────────────────────────────────────────────────────────
     async function shareInviteForPeer(peer) {
         if (!peer) { window.showToast && showToast('No contact selected'); return; }
@@ -204,7 +355,7 @@
     window.shareInviteOpen = shareInviteOpen;
 
     // ────────────────────────────────────────────────────────────
-    // 4. SHARED REGISTRATION CORE
+    // 6. SHARED REGISTRATION CORE
     // ────────────────────────────────────────────────────────────
     async function _finishRegistration(name, phone, preferredUserid) {
         const userid = preferredUserid ||
@@ -251,7 +402,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 5. INVITE WELCOME OVERLAY
+    // 7. INVITE WELCOME OVERLAY (email + OTP + name + phone)
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         document.getElementById('inviteWelcomeOverlay')?.remove();
@@ -317,6 +468,21 @@
                 <div style="margin-bottom:14px;text-align:left;">
                     <label style="font-size:0.72rem;color:#7a89a8;
                                   text-transform:uppercase;letter-spacing:0.05em;">
+                        Email
+                    </label>
+                    <input id="inviteEmail" type="email" placeholder="you@example.com"
+                           autocomplete="email" inputmode="email"
+                           style="width:100%;margin-top:6px;padding:12px 14px;
+                                  border-radius:14px;
+                                  border:1px solid rgba(255,255,255,0.08);
+                                  background:rgba(255,255,255,0.04);
+                                  color:#eef0f5;font-size:16px;
+                                  outline:none;font-family:inherit;" />
+                </div>
+
+                <div style="margin-bottom:14px;text-align:left;">
+                    <label style="font-size:0.72rem;color:#7a89a8;
+                                  text-transform:uppercase;letter-spacing:0.05em;">
                         OTP
                     </label>
                     <div style="display:flex;gap:8px;margin-top:6px;">
@@ -340,6 +506,9 @@
                             Send OTP
                         </button>
                     </div>
+                    <div id="inviteOtpStatus"
+                         style="font-size:0.72rem; color:#7a89a8;
+                                margin-top:6px; min-height:1em;"></div>
                 </div>
 
                 <div style="margin-bottom:16px;text-align:left;">
@@ -373,31 +542,67 @@
         `;
         document.body.appendChild(overlay);
 
-        document.getElementById('inviteSendOtp').addEventListener('click', () => {
+        // Send OTP
+        document.getElementById('inviteSendOtp').addEventListener('click', async function () {
             const phone = document.getElementById('invitePhone').value.trim();
+            const email = document.getElementById('inviteEmail').value.trim();
+            const status = document.getElementById('inviteOtpStatus');
+            const btn = this;
+
             if (!phone || !/^\d{10}$/.test(phone)) {
                 window.showToast && showToast('Please enter a valid 10-digit number');
                 return;
             }
-            window.showToast && showToast(`📱 OTP sent to +91 ${phone} (Demo: 1234)`);
-            document.getElementById('inviteOtp').value = '1234';
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                window.showToast && showToast('Please enter a valid email');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Sending…';
+            if (status) status.textContent = '';
+
+            const result = await sendOtpEmail(phone, email);
+            if (result.ok) {
+                window.showToast && showToast('📧 Code sent to ' + email);
+                if (status) status.textContent = 'Check your inbox (and spam) for the 6-digit code. Expires in 10 min.';
+
+                let cd = 60;
+                btn.textContent = 'Resend (' + cd + 's)';
+                const tick = setInterval(() => {
+                    cd--;
+                    if (cd <= 0) {
+                        clearInterval(tick);
+                        btn.disabled = false;
+                        btn.textContent = 'Send OTP';
+                    } else {
+                        btn.textContent = 'Resend (' + cd + 's)';
+                    }
+                }, 1000);
+            } else {
+                window.showToast && showToast('Could not send OTP: ' + (result.error || 'unknown'));
+                btn.disabled = false;
+                btn.textContent = 'Send OTP';
+            }
         });
 
+        // Join
         document.getElementById('inviteJoinBtn').addEventListener('click', async () => {
             const name = (document.getElementById('inviteName').value || '').trim();
             const phone = (document.getElementById('invitePhone').value || '').trim();
+            const email = (document.getElementById('inviteEmail').value || '').trim();
             const otp = (document.getElementById('inviteOtp').value || '').trim();
 
             if (!phone || !/^\d{10}$/.test(phone)) {
                 window.showToast && showToast('Please enter a valid 10-digit number');
                 return;
             }
-            if (!otp) {
-                window.showToast && showToast('Please enter the OTP');
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                window.showToast && showToast('Please enter a valid email');
                 return;
             }
-            if (otp !== '1234') {
-                window.showToast && showToast('Invalid OTP. Use 1234 (demo)');
+            if (!otp) {
+                window.showToast && showToast('Please enter the OTP');
                 return;
             }
             if (!name) {
@@ -405,8 +610,19 @@
                 return;
             }
 
-            const isIntendedRecipient = !isTargeted || phone === payload.to;
+            const joinBtn = document.getElementById('inviteJoinBtn');
+            joinBtn.disabled = true;
+            joinBtn.textContent = 'Verifying…';
 
+            const verify = await verifyOtpEmail(phone, otp);
+            if (!verify.ok) {
+                window.showToast && showToast('⚠️ ' + (verify.message || 'Invalid OTP'));
+                joinBtn.disabled = false;
+                joinBtn.textContent = '🚀 Join & open chat';
+                return;
+            }
+
+            const isIntendedRecipient = !isTargeted || phone === payload.to;
             if (isIntendedRecipient) {
                 autoRegisterFromInvite(payload, name, phone, payload.from || payload.chat);
             } else {
@@ -418,40 +634,21 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. AUTO-REGISTER PATHS
+    // 8. AUTO-REGISTER PATHS
     // ────────────────────────────────────────────────────────────
     async function autoRegisterFromInvite(payload, name, phone, openChatWith) {
         if (!phone) { window.showToast && showToast('Missing phone number'); return; }
-
-        const btn = document.getElementById('inviteJoinBtn');
-        if (btn) {
-            btn.disabled = true;
-            btn.style.opacity = '0.75';
-            btn.textContent = 'Creating your account…';
-        }
-
         await _finishRegistration(name, phone);
         document.getElementById('inviteWelcomeOverlay')?.remove();
-
         showWelcomePopup(name);
         if (openChatWith) openChatWhenReady(openChatWith);
     }
 
     async function autoRegisterAsNewUser(name, phone) {
         if (!phone) return;
-
-        const btn = document.getElementById('inviteJoinBtn');
-        if (btn) {
-            btn.disabled = true;
-            btn.style.opacity = '0.75';
-            btn.textContent = 'Creating your account…';
-        }
-
         await _finishRegistration(name, phone);
         document.getElementById('inviteWelcomeOverlay')?.remove();
-
         showWrongInvitePopup(name);
-
         setTimeout(() => {
             if (typeof window.switchTab === 'function') window.switchTab('chat');
             if (typeof window.renderChatList === 'function') window.renderChatList();
@@ -459,7 +656,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 7. OPEN CHAT WHEN READY
+    // 9. OPEN CHAT WHEN READY
     // ────────────────────────────────────────────────────────────
     function openChatWhenReady(peer, maxWaitMs = 10000) {
         const start = Date.now();
@@ -478,7 +675,7 @@
     window.openChatWhenReady = openChatWhenReady;
 
     // ────────────────────────────────────────────────────────────
-    // 8. WELCOME / WRONG-INVITE POPUP
+    // 10. WELCOME / WRONG-INVITE POPUP
     // ────────────────────────────────────────────────────────────
     function showJoinWelcomePopup(name, variant) {
         document.getElementById('welcomePopup')?.remove();
@@ -581,8 +778,7 @@
                                 filter: blur(10px);"></div>
                     <span style="position:absolute; left:-6px; top:24%;
                                  font-size:13px; color:#c4b5fd;
-                                 animation: wpopSparkle 2.6s ease-in-out infinite;
-                                 animation-delay: 0s;">✦</span>
+                                 animation: wpopSparkle 2.6s ease-in-out infinite;">✦</span>
                     <span style="position:absolute; right:-4px; bottom:30%;
                                  font-size:11px; color:#6ee7ff;
                                  animation: wpopSparkle 2.6s ease-in-out infinite;
@@ -598,9 +794,7 @@
                                 width:100px; height:100px;
                                 border-radius:50%;
                                 border:2px solid rgba(139,92,246,0.35);
-                                box-shadow:
-                                    0 0 40px ${logoGlow},
-                                    0 10px 30px rgba(0,0,0,0.55);
+                                box-shadow: 0 0 40px ${logoGlow}, 0 10px 30px rgba(0,0,0,0.55);
                                 object-fit:cover;" />
 
                     <div style="position:absolute; right:6px; bottom:6px;
@@ -646,20 +840,18 @@
             popup.style.opacity = '0';
             setTimeout(() => popup.remove(), 350);
         };
-
         document.getElementById('welcomeGotItBtn').addEventListener('click', dismiss);
         setTimeout(() => { if (popup.parentNode) dismiss(); }, isWelcome ? 7500 : 9000);
     }
 
     function showWelcomePopup(name) { showJoinWelcomePopup(name, 'welcome'); }
     function showWrongInvitePopup(name) { showJoinWelcomePopup(name, 'wrong-invite'); }
-
     window.showJoinWelcomePopup = showJoinWelcomePopup;
     window.showWelcomePopup = showWelcomePopup;
     window.showWrongInvitePopup = showWrongInvitePopup;
 
     // ────────────────────────────────────────────────────────────
-    // 9. INVITE URL HANDLER
+    // 11. INVITE URL HANDLER
     // ────────────────────────────────────────────────────────────
     async function handleInviteFromURL() {
         const params = new URLSearchParams(location.search);
@@ -695,7 +887,7 @@
     window.handleInviteFromURL = handleInviteFromURL;
 
     // ────────────────────────────────────────────────────────────
-    // 10. REFRESH CONNECTION
+    // 12. REFRESH CONNECTION
     // ────────────────────────────────────────────────────────────
     if (typeof window.refreshConnection !== 'function') {
         window.refreshConnection = async function () {
@@ -710,14 +902,12 @@
                     if (window.PremCall.reinit) window.PremCall.reinit(storedNum);
                     else window.PremCall.init(storedNum);
                 }
-
                 if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') {
                     window.initFirebaseMessaging();
                 } else {
                     if (typeof window.initCallSignaling === 'function') window.initCallSignaling();
                     if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
                 }
-
                 if (typeof window.renderChatList === 'function') window.renderChatList();
                 if (typeof window.renderCallList === 'function') window.renderCallList();
 
@@ -734,17 +924,13 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 11. CALL LOG SYNC
+    // 13. CALL LOG SYNC
     // ────────────────────────────────────────────────────────────
     if (typeof window.initCallLogSync !== 'function') {
         window.callLogsUnsub = null;
         window.initCallLogSync = function () {
             if (!window.db || !window.myNumber) return;
-            if (window.callLogsUnsub) {
-                try { window.callLogsUnsub(); } catch (e) {}
-                window.callLogsUnsub = null;
-            }
-
+            if (window.callLogsUnsub) { try { window.callLogsUnsub(); } catch (e) {} window.callLogsUnsub = null; }
             window.callLogsUnsub = window.db.collection('call_logs')
                 .where('owner', '==', window.myNumber)
                 .onSnapshot(snapshot => {
@@ -759,24 +945,22 @@
                             .slice(0, 100);
                         localStorage.setItem('premCallLogs', JSON.stringify(merged));
                         if (typeof window.renderCallList === 'function') window.renderCallList();
-                    } catch (e) { console.warn('Call log merge failed:', e); }
+                    } catch (e) {}
                 }, err => console.warn('Call log listener error:', err));
         };
     }
 
     // ────────────────────────────────────────────────────────────
-    // 12. PROFILE LOOKUP
+    // 14. PROFILE LOOKUP
     // ────────────────────────────────────────────────────────────
     if (typeof window.fetchUserProfile !== 'function') {
         window.userProfileCache = window.userProfileCache || {};
-
         window.fetchUserProfile = async function (phone) {
             if (!phone) return null;
             if (window.userProfileCache[phone] && window.userProfileCache[phone].loaded) {
                 return window.userProfileCache[phone];
             }
             if (!window.db) return null;
-
             try {
                 const doc = await window.db.collection('profiles').doc(phone).get();
                 if (doc.exists) {
@@ -788,13 +972,11 @@
                     };
                     return window.userProfileCache[phone];
                 }
-            } catch (e) { console.warn('Profile fetch failed for ' + phone, e); }
-
+            } catch (e) {}
             window.userProfileCache[phone] = { name: null, username: null, loaded: true };
             return null;
         };
     }
-
     if (typeof window.getDisplayNameForPeer !== 'function') {
         window.getDisplayNameForPeer = function (phone) {
             const saved = typeof window.getContactName === 'function' ? window.getContactName(phone) : null;
@@ -806,13 +988,12 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 13. INJECT INVITE BUTTON INTO CONTACT PROFILE
+    // 15. INJECT INVITE BUTTON INTO CONTACT PROFILE
     // ────────────────────────────────────────────────────────────
     function injectInviteButton() {
         const profileOverlay = document.getElementById('contactProfileOverlay');
         if (!profileOverlay || profileOverlay.style.display === 'none') return;
         if (document.getElementById('contactProfileInvite')) return;
-
         const msgBtn = document.getElementById('contactProfileMessage');
         if (!msgBtn || !msgBtn.parentNode) return;
 
@@ -831,7 +1012,6 @@
             }
             if (peer) shareInviteForPeer(peer);
         });
-
         msgBtn.parentNode.appendChild(inviteBtn);
     }
 
@@ -840,24 +1020,19 @@
         if (overlay && overlay.style.display === 'flex') injectInviteButton();
     });
     observer.observe(document.body, {
-        attributes: true,
-        attributeFilter: ['style'],
-        subtree: true,
+        attributes: true, attributeFilter: ['style'], subtree: true,
     });
     setTimeout(injectInviteButton, 500);
 
     // ────────────────────────────────────────────────────────────
-    // 14. INJECT SETTINGS ROWS
-    //     Invite friends / Refresh / Debug console / Memory / Chats
+    // 16. INJECT SETTINGS ROWS
     // ────────────────────────────────────────────────────────────
     function injectSettingsButtons() {
         const settingsSection = document.querySelector('.settings-section');
         if (!settingsSection) return;
-
         const logoutBtn = settingsSection.querySelector('.logout-btn');
         if (!logoutBtn) return;
 
-        // ── Invite friends ──
         if (!document.getElementById('inviteFriendsBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -871,7 +1046,6 @@
             settingsSection.insertBefore(row, logoutBtn);
         }
 
-        // ── Refresh connection ──
         if (!document.getElementById('refreshConnectionBtn')) {
             const row = document.createElement('div');
             row.className = 'setting-item';
@@ -885,7 +1059,6 @@
             settingsSection.insertBefore(row, logoutBtn);
         }
 
-        // ── RAGina memory toggle ──
         if (!document.getElementById('raginaMemoryToggle')) {
             const consent = (window.RaginaMemory && window.RaginaMemory.getConsent()) || { memory: false };
             const row = document.createElement('div');
@@ -907,7 +1080,6 @@
             });
         }
 
-        // ── Chat context toggle ──
         if (!document.getElementById('raginaChatContextToggle')) {
             const consent = (window.RaginaMemory && window.RaginaMemory.getConsent()) || { chats: false };
             const row = document.createElement('div');
@@ -929,11 +1101,9 @@
             });
         }
 
-        // ── Debug console toggle ──
         if (!document.getElementById('debugConsoleToggle')) {
             const saved = localStorage.getItem('debugConsoleVisible');
             const visible = saved === null ? true : saved === 'true';
-
             const row = document.createElement('div');
             row.className = 'setting-item';
             row.innerHTML = `
@@ -944,28 +1114,26 @@
                 </label>
             `;
             settingsSection.insertBefore(row, logoutBtn);
-
             const toggle = row.querySelector('#debugConsoleToggle');
             const debugFab = document.getElementById('debugToggle');
             if (debugFab) debugFab.style.display = visible ? '' : 'none';
-
             toggle.addEventListener('change', function () {
-                const isVisible = this.checked;
-                if (debugFab) debugFab.style.display = isVisible ? '' : 'none';
-                localStorage.setItem('debugConsoleVisible', String(isVisible));
-                if (!isVisible) {
-                    const consoleEl = document.getElementById('debugConsole');
-                    if (consoleEl) consoleEl.style.transform = 'translateY(100%)';
+                const v = this.checked;
+                if (debugFab) debugFab.style.display = v ? '' : 'none';
+                localStorage.setItem('debugConsoleVisible', String(v));
+                if (!v) {
+                    const c = document.getElementById('debugConsole');
+                    if (c) c.style.transform = 'translateY(100%)';
                     const dt = document.getElementById('debugToggle');
                     if (dt) dt.innerHTML = '<i class="fas fa-terminal"></i>';
                 }
-                window.showToast && showToast(isVisible ? '🐞 Debug button shown' : '🐞 Debug button hidden');
+                window.showToast && showToast(v ? '🐞 Debug button shown' : '🐞 Debug button hidden');
             });
         }
     }
 
     // ────────────────────────────────────────────────────────────
-    // 15. COPY BUTTON IN DEBUG CONSOLE
+    // 17. COPY BUTTON IN DEBUG CONSOLE
     // ────────────────────────────────────────────────────────────
     function injectConsoleCopyButton() {
         const clearBtn = document.getElementById('consoleClear');
@@ -977,7 +1145,6 @@
         copyBtn.id = 'consoleCopy';
         copyBtn.textContent = '📋 Copy';
         copyBtn.style.cssText = 'background:rgba(255,255,255,0.04);border:none;color:#a5b3d0;padding:2px 10px;border-radius:8px;font-size:10px;cursor:pointer;font-family:inherit;';
-
         copyBtn.addEventListener('click', async () => {
             const body = document.getElementById('consoleBody');
             if (!body) return;
@@ -988,27 +1155,21 @@
                     await navigator.clipboard.writeText(text);
                 } else {
                     const ta = document.createElement('textarea');
-                    ta.value = text;
-                    ta.style.position = 'fixed';
-                    ta.style.opacity = '0';
-                    document.body.appendChild(ta);
-                    ta.select();
-                    document.execCommand('copy');
-                    ta.remove();
+                    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
                 }
                 copyBtn.textContent = '✅ Copied';
                 setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
-                window.showToast && showToast('📋 Console copied to clipboard');
+                window.showToast && showToast('📋 Console copied');
             } catch (e) {
                 window.showToast && showToast('Copy failed: ' + e.message);
             }
         });
-
         actions.insertBefore(copyBtn, clearBtn);
     }
 
     // ────────────────────────────────────────────────────────────
-    // 16. AUTO-LOAD raginaMemory.js
+    // 18. AUTO-LOAD raginaMemory.js
     // ────────────────────────────────────────────────────────────
     (function loadRaginaMemory() {
         if (document.querySelector('script[src*="raginaMemory.js"]')) return;
@@ -1019,14 +1180,8 @@
         document.body.appendChild(s);
     })();
 
-    // ────────────────────────────────────────────────────────────
-    // Initial injections
-    // ────────────────────────────────────────────────────────────
     setTimeout(injectSettingsButtons, 600);
-    setTimeout(() => {
-        injectConsoleCopyButton();
-        injectSettingsButtons();
-    }, 900);
+    setTimeout(() => { injectConsoleCopyButton(); injectSettingsButtons(); }, 900);
     setTimeout(injectConsoleCopyButton, 2000);
     setTimeout(injectConsoleCopyButton, 4000);
 
@@ -1034,18 +1189,16 @@
     if (typeof origSwitchTab === 'function') {
         window.switchTab = function (tab) {
             const result = origSwitchTab.apply(this, arguments);
-            if (tab === 'me') {
-                setTimeout(() => {
-                    injectSettingsButtons();
-                    injectConsoleCopyButton();
-                }, 150);
-            }
+            if (tab === 'me') setTimeout(() => {
+                injectSettingsButtons();
+                injectConsoleCopyButton();
+            }, 150);
             return result;
         };
     }
 
     // ────────────────────────────────────────────────────────────
-    // 17. FIRST-RUN REGISTRATION GATE
+    // 19. FIRST-RUN REGISTRATION GATE
     // ────────────────────────────────────────────────────────────
     function isRegistered() {
         return !!localStorage.getItem('premCallRegisteredAt') &&
@@ -1143,13 +1296,11 @@
                     </label>
                     <input id="bootRegName" type="text" placeholder="Your name"
                            autocomplete="name"
-                           style="width:100%; padding:13px 16px;
-                                  border-radius:14px;
+                           style="width:100%; padding:13px 16px; border-radius:14px;
                                   border:1px solid rgba(255,255,255,0.08);
                                   background:rgba(255,255,255,0.04);
                                   color:#eef0f5; font-size:16px;
-                                  outline:none; font-family:inherit;
-                                  transition:border-color 0.2s, background 0.2s;" />
+                                  outline:none; font-family:inherit;" />
                 </div>
 
                 <div>
@@ -1160,13 +1311,14 @@
                     </label>
                     <input id="bootRegUserid" type="text" placeholder="Choose a unique ID"
                            autocomplete="username"
-                           style="width:100%; padding:13px 16px;
-                                  border-radius:14px;
+                           style="width:100%; padding:13px 16px; border-radius:14px;
                                   border:1px solid rgba(255,255,255,0.08);
                                   background:rgba(255,255,255,0.04);
                                   color:#eef0f5; font-size:16px;
-                                  outline:none; font-family:inherit;
-                                  transition:border-color 0.2s, background 0.2s;" />
+                                  outline:none; font-family:inherit;" />
+                    <div id="bootRegUserStatus"
+                         style="font-size:0.72rem; color:#7a89a8;
+                                margin-top:4px; min-height:1em;"></div>
                 </div>
 
                 <div>
@@ -1177,13 +1329,26 @@
                     </label>
                     <input id="bootRegPhone" type="tel" placeholder="10-digit number"
                            maxlength="10" inputmode="numeric" autocomplete="tel"
-                           style="width:100%; padding:13px 16px;
-                                  border-radius:14px;
+                           style="width:100%; padding:13px 16px; border-radius:14px;
                                   border:1px solid rgba(255,255,255,0.08);
                                   background:rgba(255,255,255,0.04);
                                   color:#eef0f5; font-size:16px;
-                                  outline:none; font-family:inherit;
-                                  transition:border-color 0.2s, background 0.2s;" />
+                                  outline:none; font-family:inherit;" />
+                </div>
+
+                <div>
+                    <label style="font-size:0.72rem; color:#7a89a8;
+                                  text-transform:uppercase; letter-spacing:0.06em;
+                                  display:block; margin-bottom:6px; font-weight:500;">
+                        Email
+                    </label>
+                    <input id="bootRegEmail" type="email" placeholder="you@example.com"
+                           autocomplete="email" inputmode="email"
+                           style="width:100%; padding:13px 16px; border-radius:14px;
+                                  border:1px solid rgba(255,255,255,0.08);
+                                  background:rgba(255,255,255,0.04);
+                                  color:#eef0f5; font-size:16px;
+                                  outline:none; font-family:inherit;" />
                 </div>
 
                 <div>
@@ -1195,25 +1360,26 @@
                     <div style="display:flex; gap:8px;">
                         <input id="bootRegOtp" type="text" placeholder="Enter OTP"
                                inputmode="numeric" maxlength="6"
-                               style="flex:1; min-width:0;
-                                      padding:13px 16px;
+                               style="flex:1; min-width:0; padding:13px 16px;
                                       border-radius:14px;
                                       border:1px solid rgba(255,255,255,0.08);
                                       background:rgba(255,255,255,0.04);
                                       color:#eef0f5; font-size:16px;
                                       outline:none; font-family:inherit;
-                                      transition:border-color 0.2s, background 0.2s;" />
+                                      letter-spacing:2px;" />
                         <button id="bootRegSendOtp" type="button"
                                 style="padding:13px 18px; border-radius:14px;
                                        border:1px solid rgba(139,92,246,0.25);
                                        background:rgba(139,92,246,0.12);
                                        color:#a78bfa; font-weight:600;
                                        font-size:0.8rem; cursor:pointer;
-                                       white-space:nowrap; font-family:inherit;
-                                       transition:background 0.2s, transform 0.1s;">
+                                       white-space:nowrap; font-family:inherit;">
                             Send OTP
                         </button>
                     </div>
+                    <div id="bootRegOtpStatus"
+                         style="font-size:0.72rem; color:#7a89a8;
+                                margin-top:6px; min-height:1em;"></div>
                 </div>
             </div>
 
@@ -1222,8 +1388,7 @@
                            background:linear-gradient(135deg,#7c3aed,#6d28d9);
                            color:#fff; font-weight:700; font-size:1rem;
                            cursor:pointer; font-family:inherit; margin-top:22px;
-                           box-shadow: 0 8px 24px rgba(139,92,246,0.35);
-                           transition:transform 0.1s, box-shadow 0.2s;">
+                           box-shadow: 0 8px 24px rgba(139,92,246,0.35);">
                 Register
             </button>
 
@@ -1235,22 +1400,58 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        document.getElementById('bootRegSendOtp').addEventListener('click', () => {
+        // ── Send OTP ──
+        document.getElementById('bootRegSendOtp').addEventListener('click', async function () {
             const phone = document.getElementById('bootRegPhone').value.trim();
+            const email = document.getElementById('bootRegEmail').value.trim();
+            const status = document.getElementById('bootRegOtpStatus');
+            const btn = this;
+
             if (!phone || !/^\d{10}$/.test(phone)) {
                 window.showToast && showToast('Please enter a valid 10-digit number');
                 return;
             }
-            window.showToast && showToast(`📱 OTP sent to ${phone} (Demo: 1234)`);
-            document.getElementById('bootRegOtp').value = '1234';
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                window.showToast && showToast('Please enter a valid email');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Sending…';
+            if (status) status.textContent = '';
+
+            const result = await sendOtpEmail(phone, email);
+            if (result.ok) {
+                window.showToast && showToast('📧 Code sent to ' + email);
+                if (status) status.textContent = 'Check your inbox (and spam) for the 6-digit code. Expires in 10 min.';
+
+                let cd = 60;
+                btn.textContent = 'Resend (' + cd + 's)';
+                const tick = setInterval(() => {
+                    cd--;
+                    if (cd <= 0) {
+                        clearInterval(tick);
+                        btn.disabled = false;
+                        btn.textContent = 'Send OTP';
+                    } else {
+                        btn.textContent = 'Resend (' + cd + 's)';
+                    }
+                }, 1000);
+            } else {
+                window.showToast && showToast('Could not send OTP: ' + (result.error || 'unknown'));
+                btn.disabled = false;
+                btn.textContent = 'Send OTP';
+            }
         });
 
+        // ── Register ──
         const submitBtn = document.getElementById('bootRegSubmit');
         submitBtn.addEventListener('click', async () => {
-            const name = document.getElementById('bootRegName').value.trim();
+            const name   = document.getElementById('bootRegName').value.trim();
             const userid = document.getElementById('bootRegUserid').value.trim();
-            const phone = document.getElementById('bootRegPhone').value.trim();
-            const otp = document.getElementById('bootRegOtp').value.trim();
+            const phone  = document.getElementById('bootRegPhone').value.trim();
+            const email  = document.getElementById('bootRegEmail').value.trim();
+            const otp    = document.getElementById('bootRegOtp').value.trim();
 
             if (!name)   { window.showToast && showToast('Please enter your name'); return; }
             if (!userid) { window.showToast && showToast('Please choose a username'); return; }
@@ -1258,16 +1459,45 @@
                 window.showToast && showToast('Please enter a valid 10-digit number');
                 return;
             }
-            if (!otp) { window.showToast && showToast('Please enter the OTP'); return; }
-            if (otp !== '1234') {
-                window.showToast && showToast('Invalid OTP. Use 1234 (demo)');
+            if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+                window.showToast && showToast('Please enter a valid email');
                 return;
             }
+            if (!otp) { window.showToast && showToast('Please enter the OTP'); return; }
 
             submitBtn.disabled = true;
             submitBtn.style.opacity = '0.7';
-            submitBtn.textContent = 'Registering…';
 
+            // ── Verify OTP ──
+            submitBtn.textContent = 'Verifying…';
+            const verify = await verifyOtpEmail(phone, otp);
+            if (!verify.ok) {
+                window.showToast && showToast('⚠️ ' + (verify.message || 'Invalid OTP'));
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                submitBtn.textContent = 'Register';
+                return;
+            }
+
+            // ── Duplicate check ──
+            submitBtn.textContent = 'Checking…';
+            const avail = await checkAvailability(userid, phone);
+            if (avail && avail.ok === false) {
+                window.showToast && showToast('⚠️ ' + (avail.message || 'Not available'));
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                submitBtn.textContent = 'Register';
+                return;
+            }
+            if (avail && avail.usernameAvailable === false) {
+                window.showToast && showToast('⚠️ Username is already taken');
+                submitBtn.disabled = false;
+                submitBtn.style.opacity = '1';
+                submitBtn.textContent = 'Register';
+                return;
+            }
+
+            submitBtn.textContent = 'Registering…';
             await _finishRegistration(name, phone, userid);
 
             const screenEl = document.getElementById('bootRegScreen');
@@ -1278,7 +1508,6 @@
             }
 
             window.showToast && showToast('✅ Welcome to Sandesai, ' + name + '!');
-
             setTimeout(() => {
                 if (typeof window.renderChatList === 'function') window.renderChatList();
                 if (typeof window.renderCallList === 'function') window.renderCallList();
@@ -1295,27 +1524,32 @@
     function bootRegistrationGate() {
         if (document.getElementById('inviteWelcomeOverlay')) return;
         if (isRegistered()) return;
+        if (forceUpdateShown) return;
 
         if (bootHadInvite) {
             setTimeout(() => {
                 if (document.getElementById('inviteWelcomeOverlay')) return;
                 if (isRegistered()) return;
+                if (forceUpdateShown) return;
                 showBootRegistrationScreen();
             }, 1500);
             return;
         }
-
         showBootRegistrationScreen();
     }
 
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 18. BOOT
+    // 20. BOOT
     // ────────────────────────────────────────────────────────────
-    function onBoot() {
+    async function onBoot() {
         const params = new URLSearchParams(location.search);
         bootHadInvite = params.has('join') || params.has('invite');
+
+        // Force update check first — if it fails, show banner and stop
+        const needsUpdate = await checkForceUpdate();
+        if (needsUpdate) return;
 
         setTimeout(() => { handleInviteFromURL(); }, 700);
         setTimeout(() => { bootRegistrationGate(); }, 1300);
@@ -1327,5 +1561,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug tools, memory');
+    console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug, memory, OTP, force-update');
 })();
