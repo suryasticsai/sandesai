@@ -1,7 +1,8 @@
 // ============================================================
 // APP.JS – Calling Core (PeerJS, RAGina, Video, Recording,
 //          Firestore signaling, chunked file transfer,
-//          VAD-free barge-in with echo rejection)
+//          VAD-free barge-in with echo rejection,
+//          RAGina persistent memory integration)
 // ============================================================
 
 (function(global) {
@@ -45,15 +46,18 @@
     let actx = null;
 
     // Barge-in / voice skills
-    const BARGE_IN_GRACE_MS = 700;          // ignore mic during first 700ms of TTS (echo protection)
+    const BARGE_IN_GRACE_MS = 700;
     let raginaSpeakingStartedAt = 0;
     let raginaTurnStartTime = 0;
     let raginaBargeInCount = 0;
     let raginaLatencySamples = [];
     let raginaVoiceSubs = [];
-    let raginaRecGen = 0;                   // recognition generation guard
-    let raginaLastStartAt = 0;              // throttle recognition restarts
-    let raginaCurrentTTSText = '';          // what the AI is currently saying (for echo rejection)
+    let raginaRecGen = 0;
+    let raginaLastStartAt = 0;
+    let raginaCurrentTTSText = '';
+
+    // Memory state
+    let raginaMemoryReady = false;
 
     function audioCtx() {
         if (!actx) {
@@ -245,16 +249,6 @@
             try { global.VoiceSkills.setSpeaking(v); } catch (e) {}
         }
     }
-    function voiceSkillsNotifySpeechStart(source) {
-        if (voiceSkillsAvailable() && global.VoiceSkills.notifySpeechStart) {
-            try { global.VoiceSkills.notifySpeechStart(source); } catch (e) {}
-        }
-    }
-    function voiceSkillsNotifySpeechEnd(source) {
-        if (voiceSkillsAvailable() && global.VoiceSkills.notifySpeechEnd) {
-            try { global.VoiceSkills.notifySpeechEnd(source); } catch (e) {}
-        }
-    }
     function voiceSkillsNotifyBargeIn() {
         if (voiceSkillsAvailable() && global.VoiceSkills.notifyBargeIn) {
             try { global.VoiceSkills.notifyBargeIn(); } catch (e) {}
@@ -280,8 +274,6 @@
 
     // ═══════════════════════════════════════════════════════════
     // ECHO REJECTION
-    // Detects whether the mic picked up the AI's own voice coming
-    // back through the speaker, vs. the user actually interrupting.
     // ═══════════════════════════════════════════════════════════
     function isEchoOfTTS(transcript) {
         const t = String(transcript || '').toLowerCase().trim();
@@ -289,10 +281,8 @@
         const ai = raginaCurrentTTSText;
         if (!ai) return false;
 
-        // Whole phrase appears in AI text → echo
         if (ai.indexOf(t) >= 0) return true;
 
-        // Word-level match: if 70%+ of what we heard is in the AI text → echo
         const tWords = t.split(/\s+/).filter(w => w.length > 2);
         if (tWords.length < 2) return false;
         const aWords = ai.split(/\s+/);
@@ -304,7 +294,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    // SPEAK AI RESPONSE — sets speaking=true for BOTH paths
+    // SPEAK AI RESPONSE
     // ═══════════════════════════════════════════════════════════
     async function speakAIResponse(text) {
         if (!raginaCallActive) return;
@@ -314,7 +304,6 @@
         raginaSpeakingStartedAt = Date.now();
         raginaCurrentTTSText = String(text).toLowerCase();
 
-        // ← Set speaking = true for BOTH streaming and non-streaming
         isSpeaking = true;
         voiceSkillsSetSpeaking(true);
 
@@ -403,8 +392,17 @@
         });
     }
 
-    // ---------- AI ----------
+    // ═══════════════════════════════════════════════════════════
+    // AI — uses RaginaMemory when available
+    // ═══════════════════════════════════════════════════════════
     async function askRAGina(query) {
+        if (window.RaginaMemory && window.RaginaMemory.ask && raginaMemoryReady) {
+            try {
+                return await window.RaginaMemory.ask(query);
+            } catch (e) {
+                console.warn('RaginaMemory.ask failed, falling back:', e);
+            }
+        }
         try {
             const resp = await fetch(API_URL, {
                 method: 'POST',
@@ -629,9 +627,7 @@
         });
         peer.on('connection', conn => {
             conn.on('open', () => {
-                if (!activeDataConn) {
-                    activeDataConn = conn;
-                }
+                if (!activeDataConn) activeDataConn = conn;
             });
             conn.on('data', (data) => {
                 if (FileTransfer && FileTransfer.handleIncoming(data)) return;
@@ -688,6 +684,7 @@
         raginaCurrentTTSText = '';
         raginaRecGen++;
         raginaRecognition = null;
+        raginaMemoryReady = false;
         startLog(RAGINA_NUMBER, 'ragina', 'outgoing');
         document.getElementById('callTranscript').innerHTML = '<div class="empty-hint">Live transcript will appear here…</div>';
         const avatar = document.getElementById('callAvatar');
@@ -713,14 +710,46 @@
             const wrap2 = document.getElementById('callRingWrap');
             if (wrap2) wrap2.classList.remove('ring-anim');
 
+            // 1. Consent + context load
+            try {
+                if (window.RaginaMemory) {
+                    if (!window.RaginaMemory.hasAnsweredConsent()) {
+                        document.getElementById('callSubstatus').textContent = 'Waiting for consent…';
+                        await window.RaginaMemory.showConsentDialog();
+                    }
+                    if (raginaCallActive) {
+                        document.getElementById('callSubstatus').textContent = 'Loading memory…';
+                        await window.RaginaMemory.prepareForCall(myNumber);
+                        raginaMemoryReady = true;
+                    }
+                }
+            } catch (e) {
+                console.warn('Memory prep failed:', e);
+                raginaMemoryReady = false;
+            }
+
+            if (!raginaCallActive) return;
+
             setupRAGinaVoiceSkills();
 
-            const greeting = "Hello! I'm RAGina. What is your name?";
+            // 2. Personalized greeting
+            const userData = JSON.parse(localStorage.getItem('neonUser') || '{}');
+            const greeting = (userData.name && userData.name !== 'User')
+                ? `Hi ${userData.name}! It's RAGina. How can I help you today?`
+                : "Hello! I'm RAGina. What is your name?";
+
             logMsg('ragina', greeting);
+
+            // 3. Log to Sheet
+            if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
+                window.RaginaMemory.logVoiceTurn(myNumber, 'ragina', greeting).catch(() => {});
+            }
+
             document.getElementById('callSubstatus').textContent = 'Speaking…';
             voiceSkillsMarkTurnStart();
             await speakAIResponse(greeting);
             voiceSkillsMarkTurnEnd();
+
             setTimeout(() => {
                 if (raginaCallActive && !raginaIsMuted) listenToRAGina();
             }, 700);
@@ -732,12 +761,11 @@
     // ═══════════════════════════════════════════════════════════
     function listenToRAGina() {
         if (!raginaCallActive || raginaIsMuted) return;
-        if (raginaRecognition) return;   // already listening
+        if (raginaRecognition) return;
 
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SR) return;
 
-        // Throttle — minimum 400ms between start attempts
         const now = Date.now();
         if (now - raginaLastStartAt < 400) {
             setTimeout(() => {
@@ -768,10 +796,7 @@
                 const elapsed = Date.now() - raginaSpeakingStartedAt;
                 const trimmed = transcript.trim();
 
-                // 🆕 Reject the AI's own voice coming back through the speaker
-                if (isEchoOfTTS(trimmed)) {
-                    return;
-                }
+                if (isEchoOfTTS(trimmed)) return;
 
                 if (trimmed.length >= 3 && elapsed >= BARGE_IN_GRACE_MS) {
                     console.log('⚡ Barge-in (interim):', trimmed);
@@ -802,13 +827,16 @@
             const text = transcript.trim();
             if (!text) return;
 
-            // Stop this recognizer BEFORE processing (prevents stacking)
             intentionalStop = true;
             raginaRecognition = null;
             try { rec.stop(); } catch (err) {}
 
             logMsg('user', text);
-            voiceSkillsNotifySpeechEnd('recognition');
+
+            // 🧠 Log to Sheet
+            if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
+                window.RaginaMemory.logVoiceTurn(myNumber, 'user', text).catch(() => {});
+            }
 
             if (conversationState === 0) {
                 let name = text;
@@ -823,6 +851,12 @@
                 conversationState = 1;
                 const r = 'Nice to meet you, ' + userName + '. What can I help you with today?';
                 logMsg('ragina', r);
+
+                // 🧠 Log to Sheet
+                if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
+                    window.RaginaMemory.logVoiceTurn(myNumber, 'ragina', r).catch(() => {});
+                }
+
                 document.getElementById('callSubstatus').textContent = 'Speaking…';
                 voiceSkillsMarkTurnStart();
                 await speakAIResponse(r);
@@ -836,6 +870,12 @@
                 if (!raginaCallActive) return;
                 document.getElementById('callSubstatus').textContent = 'Speaking…';
                 logMsg('ragina', ans);
+
+                // 🧠 Log to Sheet
+                if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
+                    window.RaginaMemory.logVoiceTurn(myNumber, 'ragina', ans).catch(() => {});
+                }
+
                 voiceSkillsMarkTurnStart();
                 await speakAIResponse(ans);
                 voiceSkillsMarkTurnEnd();
@@ -847,8 +887,6 @@
 
         rec.onerror = (e) => {
             if (myGen !== raginaRecGen) return;
-
-            // Silent aborts — expected
             if (e.error === 'aborted') return;
 
             if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
@@ -914,8 +952,9 @@
         if (!raginaCallActive) return;
         raginaCallActive = false;
         isSpeaking = false;
-        raginaRecGen++;         // invalidate any pending callbacks
+        raginaRecGen++;
         raginaCurrentTTSText = '';
+        raginaMemoryReady = false;
         teardownRAGinaVoiceSkills();
 
         if (raginaRecognition) {
@@ -1205,6 +1244,7 @@
                 ? Math.round(raginaLatencySamples.reduce((a, b) => a + b, 0) / raginaLatencySamples.length)
                 : 0,
             voiceSkillsAvailable: voiceSkillsAvailable(),
+            memoryReady: raginaMemoryReady,
         }),
 
         exportLog: function(log, format) {
