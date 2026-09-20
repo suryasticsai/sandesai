@@ -205,9 +205,24 @@
             padding: 8px;
             font-size: 0.82rem;
         }
+        .loader-screen {
+            position: fixed; inset: 0; z-index: 200;
+            background: #07050e;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 16px;
+            color: #a78bfa;
+            font-family: 'Inter', sans-serif;
+        }
+        .loader-screen i { font-size: 2rem; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
+
+<div class="loader-screen" id="loaderScreen">
+    <i class="fas fa-circle-notch"></i>
+    <div>Loading…</div>
+</div>
 
 <div class="header">
     <img id="bizLogo" src="sandesai-logo.png" alt="" />
@@ -238,17 +253,22 @@
     </div>
 </div>
 
-<script>
-// ═══════════════════════════════════════════════════════════════
-// CONFIG — paste your /exec URL below (no ?pass= at the end)
-// ═══════════════════════════════════════════════════════════════
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
-const SHEET_SECRET  = 'sandesai-webhook-2026';
-const RAGINA_ASK    = 'https://ragina-crawler-ragina.vercel.app/api/ask';
+<!-- ⚙️ CONFIG — must be first -->
+<script src="config.js"></script>
 
-// ═══════════════════════════════════════════════════════════════
+<script>
+// ════════════════════════════════════════════════════════════════
+// CONFIG — from config.js with fallbacks
+// ════════════════════════════════════════════════════════════════
+const CFG = window.SANDESAI || {};
+const SHEET_API_URL = CFG.SHEET_API_URL ||
+    'https://script.google.com/macros/s/AKfycbwgv2ko4WgWQOJzKh3h0VdXZsETaZIHF7cM0Dxv5PM/exec';
+const SHEET_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
+const RAGINA_ASK = CFG.RAGINA_ASK_URL || 'https://ragina-crawler-ragina.vercel.app/api/ask';
+
+// ════════════════════════════════════════════════════════════════
 // State
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 let business = {};
 let knowledge = [];
 let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -256,9 +276,9 @@ let email = localStorage.getItem('conciergeEmail') || '';
 let history = [];
 let busy = false;
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // Boot
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 (async function boot() {
     try {
         const [bizResp, kbResp] = await Promise.all([
@@ -275,9 +295,14 @@ let busy = false;
     if (business.name) {
         document.title = 'Ask ' + business.name;
         document.getElementById('bizName').textContent = business.name;
+    } else {
+        document.getElementById('bizName').textContent = 'Sandesai';
     }
     if (business.tagline) document.getElementById('bizTagline').textContent = business.tagline;
     if (business.logo_url) document.getElementById('bizLogo').src = business.logo_url;
+
+    // Hide loader
+    document.getElementById('loaderScreen').style.display = 'none';
 
     // Welcome bubble
     addBot(business.welcome ||
@@ -294,9 +319,9 @@ let busy = false;
     document.getElementById('input').focus();
 })();
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // UI helpers
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 function addUser(text) {
     const el = document.createElement('div');
     el.className = 'msg user';
@@ -345,9 +370,9 @@ function renderSuggestions() {
     if (!picks.length) box.style.display = 'none';
 }
 
-// ═══════════════════════════════════════════════════════════════
-// Retrieval — pick top-N relevant FAQs for the query
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
+// Retrieval
+// ════════════════════════════════════════════════════════════════
 function tokenize(s) {
     return String(s || '')
         .toLowerCase()
@@ -377,9 +402,9 @@ function retrieveRelevant(query, topN) {
     return scored.slice(0, topN).map(s => s.item);
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // Send message
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 async function send() {
     if (busy) return;
     const input = document.getElementById('input');
@@ -448,9 +473,9 @@ function buildPrompt(relevant, query) {
         "Reply with ONLY the assistant's response.";
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // Logging
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 async function logConversation(query, answer) {
     try {
         await fetch(SHEET_API_URL, {
@@ -463,7 +488,8 @@ async function logConversation(query, answer) {
                 sessionId: sessionId,
                 email: email,
                 query: query,
-                answer: answer
+                answer: answer,
+                source: 'concierge'
             })
         });
     } catch (e) {
@@ -471,9 +497,9 @@ async function logConversation(query, answer) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // Email capture
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 document.getElementById('emailSave').addEventListener('click', () => {
     const v = document.getElementById('emailInput').value.trim();
     if (!v || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
@@ -489,9 +515,9 @@ document.getElementById('emailSkip').addEventListener('click', () => {
     document.getElementById('emailModal').classList.remove('open');
 });
 
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 // Input events
-// ═══════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════
 document.getElementById('sendBtn').addEventListener('click', send);
 document.getElementById('input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') send();
