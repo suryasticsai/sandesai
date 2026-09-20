@@ -11,9 +11,14 @@
 (function () {
     'use strict';
 
-    const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
-    const SHEET_SECRET  = 'sandesai-webhook-2026';
-    const RAGINA_ASK    = 'https://ragina-crawler-ragina.vercel.app/api/ask';
+    // ════════════════════════════════════════════════════════════
+    // CONFIG — from config.js, with fallback
+    // ════════════════════════════════════════════════════════════
+    const CFG = window.SANDESAI || {};
+    const SHEET_API_URL = CFG.SHEET_API_URL ||
+        'https://script.google.com/macros/s/AKfycbwgv2ko4WgWQOJzKh3h0VdXZsETaZIHF7cM0Dxv5PM/exec';
+    const SHEET_SECRET  = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
+    const RAGINA_ASK    = CFG.RAGINA_ASK_URL || 'https://ragina-crawler-ragina.vercel.app/api/ask';
 
     const CONSENT_KEY = 'raginaConsent';
 
@@ -56,6 +61,7 @@
                 position: fixed; inset: 0; z-index: 9500;
                 background: rgba(8,6,20,0.92);
                 backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
                 display: flex; align-items: center; justify-content: center;
                 padding: 24px;
                 font-family: 'Inter', sans-serif;
@@ -455,8 +461,9 @@
             fetchKnowledge,
             fetchPastVoice,
             fetchRecentChats,
+            getUrl: () => SHEET_API_URL,
         },
     };
 
-    console.log('📦 raginaMemory.js loaded — memory + context ready');
+    console.log('📦 raginaMemory.js loaded — memory + context ready. URL:', SHEET_API_URL);
 })();
