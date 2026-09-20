@@ -215,6 +215,58 @@
         }
         .loader-screen i { font-size: 2rem; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Feedback row under bot messages ─── */
+        .feedback-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+        .feedback-btn {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            color: #a5b3d0;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .feedback-btn:hover {
+            background: rgba(139,92,246,0.12);
+            color: #c4b5fd;
+        }
+        .feedback-btn:active { transform: scale(0.94); }
+        .feedback-btn.selected-up {
+            background: rgba(47,217,146,0.15);
+            border-color: rgba(47,217,146,0.3);
+            color: #2fd992;
+        }
+        .feedback-btn.selected-down {
+            background: rgba(239,68,68,0.15);
+            border-color: rgba(239,68,68,0.3);
+            color: #ef4444;
+        }
+        .feedback-btn.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        .feedback-thanks {
+            font-size: 0.7rem;
+            color: #2fd992;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
     </style>
 </head>
 <body>
@@ -275,6 +327,7 @@ let sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2,
 let email = localStorage.getItem('conciergeEmail') || '';
 let history = [];
 let busy = false;
+let __feedbackEnabled = false;
 
 // ════════════════════════════════════════════════════════════════
 // Boot
@@ -304,7 +357,8 @@ let busy = false;
     // Hide loader
     document.getElementById('loaderScreen').style.display = 'none';
 
-    // Welcome bubble
+    // Welcome bubble (feedback NOT enabled for this one)
+    __feedbackEnabled = false;
     addBot(business.welcome ||
         "Hi! I'm RAGina, your AI assistant. Ask me anything and I'll do my best to help.");
 
@@ -334,6 +388,12 @@ function addBot(text) {
     const el = document.createElement('div');
     el.className = 'msg bot';
     el.textContent = text;
+
+    // Feedback buttons only for real answers, not the welcome message
+    if (__feedbackEnabled) {
+        el.appendChild(buildFeedbackRow(text));
+    }
+
     document.getElementById('messages').appendChild(el);
     scrollBottom();
     return el;
@@ -368,6 +428,68 @@ function renderSuggestions() {
         box.appendChild(chip);
     });
     if (!picks.length) box.style.display = 'none';
+}
+
+// ════════════════════════════════════════════════════════════════
+// Feedback
+// ════════════════════════════════════════════════════════════════
+function buildFeedbackRow(originalAnswer) {
+    const row = document.createElement('div');
+    row.className = 'feedback-row';
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'feedback-btn';
+    upBtn.innerHTML = '👍 Helpful';
+    upBtn.setAttribute('data-vote', 'up');
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'feedback-btn';
+    downBtn.innerHTML = '👎 Not really';
+    downBtn.setAttribute('data-vote', 'down');
+
+    let voted = false;
+
+    const record = async (vote) => {
+        if (voted) return;
+        voted = true;
+        upBtn.classList.add('disabled');
+        downBtn.classList.add('disabled');
+        if (vote === 'up') upBtn.classList.add('selected-up');
+        else downBtn.classList.add('selected-down');
+
+        const thanks = document.createElement('span');
+        thanks.className = 'feedback-thanks';
+        thanks.innerHTML = vote === 'up' ? '✅ Thanks!' : '📝 We\'ll improve';
+        row.appendChild(thanks);
+
+        try {
+            await fetch(SHEET_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({
+                    type: 'conversation',
+                    secret: SHEET_SECRET,
+                    sessionId: sessionId,
+                    email: email,
+                    query: '',
+                    answer: String(originalAnswer || '').slice(0, 500),
+                    feedback: vote,
+                    source: 'concierge-feedback'
+                })
+            });
+            console.log('📊 Feedback sent:', vote);
+        } catch (e) {
+            console.warn('Feedback log failed:', e);
+        }
+    };
+
+    upBtn.addEventListener('click', () => record('up'));
+    downBtn.addEventListener('click', () => record('down'));
+
+    row.appendChild(upBtn);
+    row.appendChild(downBtn);
+    return row;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -436,6 +558,7 @@ async function send() {
     }
 
     typing.remove();
+    __feedbackEnabled = true;
     addBot(answer);
     history.push({ role: 'bot', text: answer });
 
