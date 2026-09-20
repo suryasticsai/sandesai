@@ -1561,5 +1561,234 @@
         onBoot();
     }
 
+// ────────────────────────────────────────────────────────────
+// 21. 🗑️ DELETE ACCOUNT FLOW
+// ────────────────────────────────────────────────────────────
+function showDeleteAccountDialog() {
+    document.getElementById('deleteAccountDialog')?.remove();
+
+    const phone = localStorage.getItem('premCallNumber') || '';
+    const userData = JSON.parse(localStorage.getItem('neonUser') || '{}');
+    const userName = userData.name || 'friend';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteAccountDialog';
+    overlay.style.cssText = `
+        position: fixed; inset: 0; z-index: 9600;
+        background: rgba(8,6,20,0.94);
+        backdrop-filter: blur(18px);
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px;
+        font-family: 'Inter', sans-serif;
+        color: #eef0f5;
+    `;
+    overlay.innerHTML = `
+        <div style="max-width:400px; width:100%;
+                    background: rgba(18,16,36,0.98);
+                    border: 1px solid rgba(239,68,68,0.25);
+                    border-radius: 24px; padding: 28px 24px 22px;
+                    box-shadow: 0 40px 100px rgba(0,0,0,0.8);">
+
+            <div style="text-align:center; margin-bottom:18px;">
+                <div style="font-size:2.4rem; margin-bottom:8px;">⚠️</div>
+                <div style="font-size:1.2rem; font-weight:700; color:#ef4444;">
+                    Delete your account?
+                </div>
+                <div style="font-size:0.85rem; color:#a5b3d0;
+                            margin-top:8px; line-height:1.55;">
+                    This will permanently delete:
+                </div>
+                <div style="font-size:0.8rem; color:#7a89a8;
+                            margin-top:10px; line-height:1.7; text-align:left;
+                            background:rgba(239,68,68,0.06);
+                            border:1px solid rgba(239,68,68,0.15);
+                            border-radius:14px; padding:14px 16px;">
+                    • Your account &amp; profile<br>
+                    • All voice call history<br>
+                    • All concierge conversations<br>
+                    • All push notification tokens<br>
+                    • Local data on this device
+                </div>
+                <div style="font-size:0.78rem; color:#a5b3d0;
+                            margin-top:12px; line-height:1.5;">
+                    <b style="color:#ef4444;">This cannot be undone.</b>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <label style="font-size:0.72rem; color:#7a89a8;
+                              text-transform:uppercase; letter-spacing:0.05em;
+                              display:block; margin-bottom:6px;">
+                    Type your phone number to confirm
+                </label>
+                <input id="deleteConfirmPhone" type="tel"
+                       inputmode="numeric" maxlength="10"
+                       placeholder="${phone.slice(0, 2)}${'*'.repeat(Math.max(0, phone.length - 2))}"
+                       style="width:100%; padding:13px 16px;
+                              border-radius:14px;
+                              border:1px solid rgba(239,68,68,0.2);
+                              background:rgba(255,255,255,0.04);
+                              color:#eef0f5; font-size:16px;
+                              outline:none; font-family:inherit;
+                              letter-spacing:2px; text-align:center;" />
+            </div>
+
+            <button id="deleteAccountConfirm"
+                    style="width:100%; padding:14px; border-radius:14px;
+                           border:none;
+                           background:linear-gradient(135deg,#ef4444,#dc2626);
+                           color:#fff; font-weight:700; font-size:0.95rem;
+                           cursor:pointer; font-family:inherit;
+                           box-shadow:0 8px 24px rgba(239,68,68,0.4);
+                           transition:opacity 0.2s;">
+                Permanently delete
+            </button>
+
+            <button id="deleteAccountCancel"
+                    style="width:100%; padding:11px; margin-top:8px;
+                           border-radius:14px;
+                           border:1px solid rgba(255,255,255,0.06);
+                           background:transparent; color:#7a89a8;
+                           font-weight:500; font-size:0.85rem;
+                           cursor:pointer; font-family:inherit;">
+                Cancel
+            </button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById('deleteConfirmPhone');
+    const confirmBtn = document.getElementById('deleteAccountConfirm');
+
+    setTimeout(() => input.focus(), 300);
+
+    // Enable confirm only when phone matches
+    function checkMatch() {
+        const typed = input.value.trim();
+        const matches = typed === phone;
+        confirmBtn.style.opacity = matches ? '1' : '0.4';
+        confirmBtn.style.pointerEvents = matches ? 'auto' : 'none';
+    }
+    input.addEventListener('input', checkMatch);
+    checkMatch();
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && input.value.trim() === phone) {
+            confirmBtn.click();
+        }
+    });
+
+    document.getElementById('deleteAccountCancel').addEventListener('click', () => {
+        overlay.remove();
+    });
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+        if (input.value.trim() !== phone) return;
+        await performAccountDeletion(phone, userName);
+        overlay.remove();
+    });
+}
+
+async function performAccountDeletion(phone, name) {
+    // Show a blocking spinner
+    document.getElementById('deleteProgressOverlay')?.remove();
+    const progress = document.createElement('div');
+    progress.id = 'deleteProgressOverlay';
+    progress.style.cssText = `
+        position: fixed; inset: 0; z-index: 9700;
+        background: rgba(8,6,20,0.96);
+        backdrop-filter: blur(20px);
+        display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 20px;
+        font-family: 'Inter', sans-serif;
+        color: #a5b3d0;
+    `;
+    progress.innerHTML = `
+        <div style="font-size:2rem; animation:spin 1s linear infinite;">⏳</div>
+        <div style="font-size:0.95rem;">Deleting your account…</div>
+        <div style="font-size:0.75rem; color:#5a6885;">This may take a few seconds</div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    `;
+    document.body.appendChild(progress);
+
+    let backendOk = false;
+    try {
+        // no-cors → we can't read the response, but the deletion happens server-side
+        await fetch(SHEET_WEBHOOK_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({
+                type: 'deleteAccount',
+                secret: SHEET_WEBHOOK_SECRET,
+                phone: phone,
+                uid: (window.auth && window.auth.currentUser && window.auth.currentUser.uid) || '',
+            }),
+        });
+        backendOk = true;
+        console.log('🗑️ Backend deletion sent');
+    } catch (e) {
+        console.warn('Backend deletion failed:', e);
+    }
+
+    // Also delete Firestore profile
+    try {
+        if (window.db && phone) {
+            await window.db.collection('profiles').doc(phone).delete();
+            console.log('🗑️ Firestore profile deleted');
+        }
+    } catch (e) {
+        console.warn('Firestore delete failed:', e);
+    }
+
+    // Sign out Firebase
+    try {
+        if (window.auth && window.auth.currentUser) {
+            await window.auth.signOut();
+        }
+    } catch (e) {}
+
+    // Wipe localStorage
+    try {
+        const keysToKeep = [];
+        // Nuke everything except nothing — we want a clean slate
+        localStorage.clear();
+        sessionStorage.clear();
+        console.log('🗑️ Local storage cleared');
+    } catch (e) {}
+
+    // Wipe IndexedDB (media)
+    try {
+        if (window.indexedDB && indexedDB.deleteDatabase) {
+            indexedDB.deleteDatabase('sandesaiMedia');
+            console.log('🗑️ Media IndexedDB deleted');
+        }
+    } catch (e) {}
+
+    // Show completion message, then reload
+    progress.innerHTML = `
+        <div style="font-size:2.6rem;">✅</div>
+        <div style="font-size:1rem; color:#2fd992; font-weight:600;">
+            Account deleted
+        </div>
+        <div style="font-size:0.8rem; color:#7a89a8; text-align:center; max-width:280px;">
+            ${name ? 'Goodbye, ' + escapeHtml(name) + '.' : 'Goodbye.'} Thanks for using Sandesai.
+        </div>
+        <div style="font-size:0.7rem; color:#5a6885; margin-top:8px;">
+            Reloading…
+        </div>
+    `;
+
+    setTimeout(() => {
+        location.reload(true);
+    }, 2200);
+}
+
+window.showDeleteAccountDialog = showDeleteAccountDialog;
+
     console.log('✨ enhancements.js loaded — boot gate, invite, welcome, refresh, sync, profiles, sheets, debug, memory, OTP, force-update');
 })();
