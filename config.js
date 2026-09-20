@@ -8,6 +8,7 @@ window.SANDESAI = {
 
     // ── Shared secret (must match Apps Script SECRET) ──
     SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026',
+ADMIN_PASSWORD: 'sandesai-admin-2026',
 
     // ── RAGina LLM endpoint ──
     RAGINA_ASK_URL: 'https://ragina-crawler-ragina.vercel.app/api/ask',
