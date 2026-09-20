@@ -256,18 +256,17 @@
     </div>
 </div>
 
+<!-- ⚙️ CONFIG — must be first -->
+<script src="config.js"></script>
+
 <script>
 // ════════════════════════════════════════════════════════════════
-// 1️⃣  ADMIN PASSCODE
-//     Must match the password check inside your Apps Script doGet().
-//     If you change it here, change it there too and re-deploy.
+// CONFIG — from config.js with fallbacks
 // ════════════════════════════════════════════════════════════════
-const ADMIN_PASSWORD = 'sandesai-admin-2026';
-
-// ════════════════════════════════════════════════════════════════
-// 2️⃣  APPS SCRIPT WEB APP URL
-//     ════════════════════════════════════════════════════════════════
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbztVPGUcNRg7fXH4w_CygzhMa_3tBqPYx0uyeg4jkxxcA78MXcUJZr47bQG2sPb3jct/exec';
+const CFG = window.SANDESAI || {};
+const ADMIN_PASSWORD = CFG.ADMIN_PASSWORD || 'sandesai-admin-2026';
+const SHEET_API_URL = CFG.SHEET_API_URL ||
+    'https://script.google.com/macros/s/AKfycbwgv2ko4WgWQOJzKh3h0VdXZsETaZIHF7cM0Dxv5PM/exec';
 
 let allUsers = [];
 
@@ -277,7 +276,7 @@ const gatePass = document.getElementById('gatePass');
 const gateSubmit = document.getElementById('gateSubmit');
 const gateError = document.getElementById('gateError');
 
-// Remember unlock for this browser session
+// Remember unlock for this session
 if (sessionStorage.getItem('sandesai_admin_unlocked') === '1') unlock();
 
 gateSubmit.addEventListener('click', tryUnlock);
@@ -305,7 +304,7 @@ async function loadUsers() {
         document.getElementById('loader').innerHTML =
             '<div style="color:#ef4444;padding:20px;text-align:center;">' +
             '<div style="font-size:1.2rem;margin-bottom:8px;">⚠️ Not configured</div>' +
-            'Paste your Apps Script /exec URL into the SHEET_API_URL constant.' +
+            'Paste your Apps Script /exec URL into config.js (SHEET_API_URL).' +
             '</div>';
         return;
     }
@@ -322,9 +321,7 @@ async function loadUsers() {
         const resp = await fetch(url);
         const data = await resp.json();
 
-        if (!data.ok) {
-            throw new Error(data.error || 'unknown error');
-        }
+        if (!data.ok) throw new Error(data.error || 'unknown error');
 
         allUsers = data.users || [];
         allUsers.sort((a, b) => (b.registeredAt || 0) - (a.registeredAt || 0));
@@ -342,7 +339,7 @@ async function loadUsers() {
             hint = `
                 <div style="font-size:0.8rem;color:#7a89a8;margin-top:12px;line-height:1.6;">
                     Password mismatch between this page and the Apps Script.<br>
-                    1. Check <code>ADMIN_PASSWORD</code> above<br>
+                    1. Check <code>ADMIN_PASSWORD</code> in config.js<br>
                     2. Check the password in the Apps Script <code>doGet()</code><br>
                     3. Re-deploy: <b>Deploy → Manage deployments → ✏️ → New version → Deploy</b>
                 </div>`;
