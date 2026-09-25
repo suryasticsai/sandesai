@@ -7,7 +7,7 @@ window.SANDESAI = {
 SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbxzkNDQqv3OJ2QhsKJPotStcDSJaYiJRn88Brw09Hf9VciPuzbLLHLCytVKe9EQcbbC/exec',
 
     // ── Shared secret (must match Apps Script SECRET) ──
-    SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026',
+    SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026', 
 ADMIN_PASSWORD: 'sandesai-admin-2026',
 
     // ── RAGina LLM endpoint ──
