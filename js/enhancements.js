@@ -6,7 +6,7 @@
 //   • Email OTP send / verify with REAL, readable errors
 //   • Duplicate username / phone check
 //   • Force update banner (from health endpoint)
-//   • Invite links + auto-registration
+//   • Invite links + auto-registration + Google on invite overlay
 //   • Welcome popup, refresh connection, call log sync, profile lookup
 //   • Debug console copy button + settings toggles
 //   • RAGina memory toggles, account deletion
@@ -560,11 +560,20 @@
 
             $('bootRegScreen')?.remove();
             $('inviteWelcomeOverlay')?.remove();
+            $('googlePhoneStep')?.remove();
             toast('👋 Welcome back, ' + name + '!');
             setTimeout(() => {
                 if (typeof window.renderChatList === 'function') window.renderChatList();
                 if (typeof window.renderCallList === 'function') window.renderCallList();
             }, 400);
+
+            // If we arrived from an invite, open the inviter's chat
+            const pending = window._pendingInvitePayload;
+            if (pending) {
+                window._pendingInvitePayload = null;
+                const peer = pending.from || pending.chat;
+                if (peer) setTimeout(() => openChatWhenReady(peer), 800);
+            }
             return;
         }
 
@@ -746,6 +755,14 @@
             $('inviteWelcomeOverlay')?.remove();
             toast('✅ Welcome to Sandesai, ' + (gUser.name || 'friend') + '!');
             showWelcomePopup(gUser.name);
+
+            // If they arrived via an invite, open the inviter's chat
+            const pending = window._pendingInvitePayload;
+            if (pending) {
+                window._pendingInvitePayload = null;
+                const peer = pending.from || pending.chat;
+                if (peer) setTimeout(() => openChatWhenReady(peer), 800);
+            }
         });
 
         setTimeout(() => useridInput.focus(), 400);
@@ -879,7 +896,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. INVITE WELCOME OVERLAY
+    // 6. INVITE WELCOME OVERLAY (with Google button)
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         $('inviteWelcomeOverlay')?.remove();
@@ -907,7 +924,23 @@
                 <img src="sandesai-logo.png" alt="Sandesai"
                      style="width:64px;height:64px;border-radius:50%;margin-bottom:12px;" />
                 <div style="font-size:1.3rem;font-weight:700;margin-bottom:4px;">You're invited to Sandesai</div>
-                <div style="font-size:0.85rem;color:#7a89a8;margin-bottom:24px;">${subtitle}</div>
+                <div style="font-size:0.85rem;color:#7a89a8;margin-bottom:20px;">${subtitle}</div>
+
+                <button id="inviteGoogleBtn" type="button" style="width:100%;padding:13px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.1);background:#fff;color:#1f1f1f;font-weight:600;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;font-family:inherit;margin-bottom:16px;">
+                    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35 24 35c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 5.1 29.3 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.2-.1-2.4-.4-3.5z"/>
+                        <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 5.1 29.3 3 24 3 16 3 9.1 7.6 6.3 14.7z"/>
+                        <path fill="#4CAF50" d="M24 45c5.2 0 10-2 13.6-5.2l-6.3-5.2C29.2 36.1 26.7 37 24 37c-5.3 0-9.7-2.6-11.3-6.9l-6.6 5.1C9 41.4 16 45 24 45z"/>
+                        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.3 5.2C41.6 35.4 45 30.2 45 24c0-1.2-.1-2.4-.4-3.5z"/>
+                    </svg>
+                    Continue with Google
+                </button>
+
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+                    <div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>
+                    <div style="font-size:0.7rem;color:#5a6885;letter-spacing:0.08em;text-transform:uppercase;">or use email</div>
+                    <div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>
+                </div>
 
                 <div style="display:flex;flex-direction:column;gap:14px;text-align:left;">
                     <div>
@@ -947,6 +980,26 @@
 
         wireSendOtp('invite', 'invitePhone', 'inviteEmail');
 
+        // ── Google button on invite overlay ──
+        $('inviteGoogleBtn').addEventListener('click', async () => {
+            const btn = $('inviteGoogleBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span style="color:#666;">Opening Google…</span>';
+
+            const user = await signInWithGoogle();
+            if (!user) {
+                btn.disabled = false;
+                btn.innerHTML = 'Continue with Google';
+                return;
+            }
+
+            // Remember the invite payload so we can open the inviter's chat
+            // after the phone step completes.
+            window._pendingInvitePayload = payload;
+            await startGoogleRegistrationFlow(user);
+        });
+
+        // ── Email OTP join button ──
         $('inviteJoinBtn').addEventListener('click', async () => {
             const name  = $('inviteName').value.trim();
             const phone = $('invitePhone').value.trim();
@@ -1963,5 +2016,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v11 loaded — Google Sign-In integrated (popup + redirect), OTP flow, boot gate, invites, sessions, delete-account');
+    console.log('✨ enhancements.js v11 loaded — Google Sign-In integrated (boot screen + invite overlay), OTP flow, boot gate, invites, sessions, delete-account');
 })();
