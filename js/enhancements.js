@@ -1,8 +1,8 @@
 // ================================================================
-// js/enhancements.js  (v12 – Phone Auth + Google Sign-In)
+// js/enhancements.js  (v13 – Firebase bootstrap fix)
 // Adds features on top of script.js without touching it:
 //   • First-run registration gate (name + username + phone + SMS OTP)
-//   • Firebase Phone Auth (real SMS) — replaces email OTP on boot screen
+//   • Firebase Phone Auth (real SMS) — bootstraps Firebase if needed
 //   • Google Sign-In (popup on desktop, redirect on mobile)
 //   • Email OTP still available on the invite overlay
 //   • Duplicate username / phone check
@@ -13,6 +13,11 @@
 //   • RAGina memory toggles, account deletion
 //   • Device session registration + verification
 //   • Auto-loads raginaMemory.js
+//
+// What changed vs v12:
+//   • getAuthInstance() / ensureWindowAuth() now trigger script.js's
+//     initFirebaseMessaging() if window.auth isn't ready yet.
+//     Fixes "Auth not ready" on the boot screen for brand-new users.
 // ================================================================
 (function () {
     'use strict';
@@ -25,7 +30,7 @@
     // ════════════════════════════════════════════════════════════
     const CFG = window.SANDESAI || {};
     const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL ||
-        'https://script.google.com/macros/s/AKfycbxGO12SNgT-Y86ap3MGqfrdPTDxpCjo4ZIjm0PyspxMYdYj3vny7RvFKOSVit-Euni0/exec';
+        'https://script.google.com/macros/s/AKfycbzTLYqybTS1_Ql9SmLupd019ncohZEj8yEVJtabzAyyIZh_kC-E2Xz8sfU2KQ_w6Iib/exec';
     const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
 
     if (!window.SANDESAI) {
@@ -97,7 +102,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 0b. FIREBASE AUTH UID — resilient lookup + self-heal
+    // 0b. FIREBASE AUTH UID — with SDK bootstrap
     // ────────────────────────────────────────────────────────────
     function getAuthUid() {
         try {
@@ -133,14 +138,28 @@
         });
     }
 
+    // Bootstrap Firebase if script.js hasn't done it yet.
     function ensureWindowAuth() {
         if (window.auth) return;
+        if (typeof firebase === 'undefined') {
+            console.warn('⚠️ Firebase SDK not loaded — check index.html script tags');
+            return;
+        }
+        try {
+            if (typeof window.initFirebaseMessaging === 'function') {
+                window.initFirebaseMessaging();
+            }
+        } catch (e) {
+            console.warn('initFirebaseMessaging threw:', e);
+        }
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
-                console.log('🔧 window.auth assigned from firebase.auth()');
+                console.log('🔧 window.auth assigned via ensureWindowAuth()');
             }
-        } catch (e) {}
+        } catch (e) {
+            console.warn('ensureWindowAuth failed:', e);
+        }
     }
 
     // ────────────────────────────────────────────────────────────
@@ -473,14 +492,36 @@
         return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     }
 
+    // 🔧 Bootstrap Firebase if script.js hasn't done it yet
     function getAuthInstance() {
-        if (window.auth) return window.auth;
+        // Already have it
+        if (window.auth && window.auth.currentUser !== undefined) return window.auth;
+
+        // Make sure the SDK is loaded
+        if (typeof firebase === 'undefined') {
+            console.error('❌ Firebase SDK not loaded — check index.html script tags');
+            return null;
+        }
+
+        // Trigger script.js's Firebase init (idempotent, safe for unregistered users)
+        try {
+            if (typeof window.initFirebaseMessaging === 'function') {
+                window.initFirebaseMessaging();
+            }
+        } catch (e) {
+            console.warn('initFirebaseMessaging threw:', e);
+        }
+
+        // Now grab auth
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
+                console.log('🔧 Firebase Auth acquired via getAuthInstance()');
                 return window.auth;
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('firebase.auth() threw:', e);
+        }
         return null;
     }
 
@@ -2132,5 +2173,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v12 loaded — Phone Auth (SMS OTP) + Google Sign-In, invites, sessions, delete-account');
+    console.log('✨ enhancements.js v13 loaded — Firebase bootstrap fix, Phone Auth, Google Sign-In');
 })();
