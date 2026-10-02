@@ -1,9 +1,10 @@
 // ================================================================
-// js/enhancements.js  (v11 – Google Sign-In Integration)
+// js/enhancements.js  (v12 – Phone Auth + Google Sign-In)
 // Adds features on top of script.js without touching it:
-//   • First-run registration gate (name + username + phone + email + OTP)
+//   • First-run registration gate (name + username + phone + SMS OTP)
+//   • Firebase Phone Auth (real SMS) — replaces email OTP on boot screen
 //   • Google Sign-In (popup on desktop, redirect on mobile)
-//   • Email OTP send / verify with REAL, readable errors
+//   • Email OTP still available on the invite overlay
 //   • Duplicate username / phone check
 //   • Force update banner (from health endpoint)
 //   • Invite links + auto-registration + Google on invite overlay
@@ -32,7 +33,7 @@
     }
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '0.6';
+    const LOCAL_APP_VERSION = '0.7';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -297,7 +298,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 3. BACKEND CALLS (registration / availability / OTP)
+    // 3. BACKEND CALLS
     // ────────────────────────────────────────────────────────────
     async function logRegistrationToSheet(name, username, phone, email, provider) {
         if (!SHEET_WEBHOOK_URL) return { ok: false, error: 'no_url' };
@@ -403,7 +404,7 @@
         }
     }
 
-    // ── Shared "Send OTP" button wiring ──
+    // ── Shared "Send OTP" button wiring (email OTP — used by invite overlay) ──
     function otpFieldHtml(prefix) {
         return `
             <div style="display:flex;gap:8px;">
@@ -448,7 +449,7 @@
             }
 
             toast('📧 Code sent to ' + (res.sentTo || email));
-            setStatus('✅ Sent to ' + (res.sentTo || email) + '. Check inbox & spam. Expires in 10 min.', '#2fd992');
+            setStatus('✅ Sent to ' + (res.sentTo || email) + '. Check inbox & spam.', '#2fd992');
 
             let cd = 60;
             btn.textContent = 'Resend (' + cd + 's)';
@@ -567,7 +568,6 @@
                 if (typeof window.renderCallList === 'function') window.renderCallList();
             }, 400);
 
-            // If we arrived from an invite, open the inviter's chat
             const pending = window._pendingInvitePayload;
             if (pending) {
                 window._pendingInvitePayload = null;
@@ -756,7 +756,6 @@
             toast('✅ Welcome to Sandesai, ' + (gUser.name || 'friend') + '!');
             showWelcomePopup(gUser.name);
 
-            // If they arrived via an invite, open the inviter's chat
             const pending = window._pendingInvitePayload;
             if (pending) {
                 window._pendingInvitePayload = null;
@@ -770,6 +769,90 @@
 
     window.signInWithGoogle = signInWithGoogle;
     window.startGoogleRegistrationFlow = startGoogleRegistrationFlow;
+
+    // ────────────────────────────────────────────────────────────
+    // 3c. PHONE AUTH (Firebase Phone Auth — real SMS OTP)
+    // ────────────────────────────────────────────────────────────
+    let _recaptchaVerifier = null;
+    let _phoneConfirmation = null;
+
+    function ensureRecaptcha(buttonId) {
+        const auth = getAuthInstance();
+        if (!auth) return null;
+        if (_recaptchaVerifier) {
+            try { _recaptchaVerifier.clear(); } catch (e) {}
+            _recaptchaVerifier = null;
+        }
+        let container = document.getElementById('recaptcha-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'recaptcha-container';
+            container.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;';
+            document.body.appendChild(container);
+        }
+        try {
+            _recaptchaVerifier = new firebase.auth.RecaptchaVerifier(buttonId || 'recaptcha-container', {
+                size: 'invisible',
+                callback: () => {}
+            });
+            return _recaptchaVerifier;
+        } catch (e) {
+            console.error('RecaptchaVerifier creation failed:', e);
+            return null;
+        }
+    }
+
+    async function sendPhoneOtp(phone, buttonId) {
+        const auth = getAuthInstance();
+        if (!auth) return { ok: false, error: 'auth_not_ready', message: 'Auth not ready. Refresh and try again.' };
+
+        const verifier = ensureRecaptcha(buttonId);
+        if (!verifier) return { ok: false, error: 'recaptcha_failed', message: 'Could not start verification.' };
+
+        const e164 = phone.startsWith('+') ? phone : '+91' + phone;
+
+        try {
+            _phoneConfirmation = await auth.signInWithPhoneNumber(e164, verifier);
+            console.log('📱 Phone OTP sent to', e164);
+            return { ok: true, sentTo: e164 };
+        } catch (e) {
+            console.error('sendPhoneOtp failed:', e);
+            let msg = e.message || 'Could not send SMS.';
+            if (e.code === 'auth/invalid-phone-number') msg = 'Invalid phone number format.';
+            if (e.code === 'auth/too-many-requests')    msg = 'Too many attempts. Try again in a while.';
+            if (e.code === 'auth/quota-exceeded')       msg = 'SMS quota exceeded for today.';
+            if (e.code === 'auth/captcha-check-failed') msg = 'ReCAPTCHA check failed. Refresh and retry.';
+            return { ok: false, error: e.code || 'phone_auth_failed', message: msg };
+        }
+    }
+
+    async function verifyPhoneOtp(code) {
+        if (!_phoneConfirmation) {
+            return { ok: false, error: 'no_pending', message: 'Request a new code first.' };
+        }
+        try {
+            const result = await _phoneConfirmation.confirm(code);
+            const user = result.user;
+            console.log('📱 Phone verified. UID:', user.uid, '| phone:', user.phoneNumber);
+            _phoneConfirmation = null;
+            return { ok: true, user: user, phone: user.phoneNumber };
+        } catch (e) {
+            console.error('verifyPhoneOtp failed:', e);
+            let msg = e.message || 'Invalid code.';
+            if (e.code === 'auth/invalid-verification-code') msg = 'Wrong code. Please try again.';
+            if (e.code === 'auth/code-expired')              msg = 'Code expired. Request a new one.';
+            return { ok: false, error: e.code || 'invalid_code', message: msg };
+        }
+    }
+
+    function cleanupPhoneAuth() {
+        try { if (_recaptchaVerifier) _recaptchaVerifier.clear(); } catch (e) {}
+        _recaptchaVerifier = null;
+        _phoneConfirmation = null;
+    }
+
+    window.sendPhoneOtp = sendPhoneOtp;
+    window.verifyPhoneOtp = verifyPhoneOtp;
 
     // ────────────────────────────────────────────────────────────
     // 4. SHARE INVITE
@@ -836,12 +919,12 @@
     // ────────────────────────────────────────────────────────────
     // 5. SHARED REGISTRATION CORE
     // ────────────────────────────────────────────────────────────
-    async function _finishRegistration(name, phone, preferredUserid, email) {
+    async function _finishRegistration(name, phone, preferredUserid, email, provider) {
         const userid = preferredUserid ||
             ((name.toLowerCase().replace(/\s+/g, '') || 'user') +
              '_' + Math.floor(1000 + Math.random() * 9000));
 
-        const regRes = await logRegistrationToSheet(name, userid, phone, email || '', 'otp');
+        const regRes = await logRegistrationToSheet(name, userid, phone, email || '', provider || 'otp');
 
         if (regRes && regRes.ok === false) {
             return {
@@ -896,7 +979,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. INVITE WELCOME OVERLAY (with Google button)
+    // 6. INVITE WELCOME OVERLAY (with Google + email OTP)
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         $('inviteWelcomeOverlay')?.remove();
@@ -980,7 +1063,7 @@
 
         wireSendOtp('invite', 'invitePhone', 'inviteEmail');
 
-        // ── Google button on invite overlay ──
+        // Google button on invite overlay
         $('inviteGoogleBtn').addEventListener('click', async () => {
             const btn = $('inviteGoogleBtn');
             btn.disabled = true;
@@ -993,13 +1076,11 @@
                 return;
             }
 
-            // Remember the invite payload so we can open the inviter's chat
-            // after the phone step completes.
             window._pendingInvitePayload = payload;
             await startGoogleRegistrationFlow(user);
         });
 
-        // ── Email OTP join button ──
+        // Email OTP join button
         $('inviteJoinBtn').addEventListener('click', async () => {
             const name  = $('inviteName').value.trim();
             const phone = $('invitePhone').value.trim();
@@ -1035,7 +1116,7 @@
     // ────────────────────────────────────────────────────────────
     async function autoRegisterFromInvite(payload, name, phone, email, openChatWith) {
         if (!phone) { toast('Missing phone number'); return; }
-        const res = await _finishRegistration(name, phone, null, email);
+        const res = await _finishRegistration(name, phone, null, email, 'otp');
         if (!res.ok) return toast('⚠️ ' + res.message);
         $('inviteWelcomeOverlay')?.remove();
         showWelcomePopup(name);
@@ -1044,7 +1125,7 @@
 
     async function autoRegisterAsNewUser(name, phone, email) {
         if (!phone) return;
-        const res = await _finishRegistration(name, phone, null, email);
+        const res = await _finishRegistration(name, phone, null, email, 'otp');
         if (!res.ok) return toast('⚠️ ' + res.message);
         $('inviteWelcomeOverlay')?.remove();
         showWrongInvitePopup(name);
@@ -1387,7 +1468,6 @@
         const logoutBtn = section.querySelector('.logout-btn');
         if (!logoutBtn) return;
 
-        // Invite friends
         addSettingRow(section, logoutBtn, `
             <span><i class="fas fa-user-group"></i> Invite friends</span>
             <button class="reg-btn" id="inviteFriendsBtn" title="Share Sandesai">
@@ -1395,7 +1475,6 @@
             </button>`, 'inviteFriendsBtn')
             ?.querySelector('#inviteFriendsBtn').addEventListener('click', shareInviteOpen);
 
-        // Refresh connection
         addSettingRow(section, logoutBtn, `
             <span><i class="fas fa-sync-alt"></i> Refresh connection</span>
             <button class="reg-btn" id="refreshConnectionBtn" title="Reconnect to network">
@@ -1409,7 +1488,6 @@
             if (window.RaginaMemory) window.RaginaMemory.setConsent(c);
         };
 
-        // RAGina memory
         addSettingRow(section, logoutBtn,
             toggleHtml('fa-brain', 'RAGina memory', 'raginaMemoryToggle', getConsent().memory),
             'raginaMemoryToggle')
@@ -1418,7 +1496,6 @@
                 toast(this.checked ? '🧠 RAGina will remember' : '🧠 Memory off');
             });
 
-        // Chat context
         addSettingRow(section, logoutBtn,
             toggleHtml('fa-comments', 'Use chats as context', 'raginaChatContextToggle', getConsent().chats),
             'raginaChatContextToggle')
@@ -1427,7 +1504,6 @@
                 toast(this.checked ? '💬 Chat context enabled' : '💬 Chat context off');
             });
 
-        // Debug console
         const saved = localStorage.getItem('debugConsoleVisible');
         const visible = saved === null ? true : saved === 'true';
         const debugRow = addSettingRow(section, logoutBtn,
@@ -1449,7 +1525,6 @@
             });
         }
 
-        // Delete account
         addSettingRow(section, logoutBtn, `
             <span style="color:#ef4444;"><i class="fas fa-trash-alt" style="color:#ef4444;"></i> Delete account</span>
             <button class="reg-btn" id="deleteAccountBtn" title="Delete my account"
@@ -1719,7 +1794,7 @@
     window.showDeleteAccountDialog = showDeleteAccountDialog;
 
     // ────────────────────────────────────────────────────────────
-    // 19. FIRST-RUN REGISTRATION GATE
+    // 19. FIRST-RUN REGISTRATION GATE (Phone Auth + Google)
     // ────────────────────────────────────────────────────────────
     function isRegistered() {
         return !!localStorage.getItem('premCallRegisteredAt') &&
@@ -1812,7 +1887,7 @@
 
             <div style="display:flex;align-items:center;gap:12px;margin:18px 0 14px;">
                 <div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>
-                <div style="font-size:0.7rem;color:#5a6885;letter-spacing:0.08em;text-transform:uppercase;">or use email</div>
+                <div style="font-size:0.7rem;color:#5a6885;letter-spacing:0.08em;text-transform:uppercase;">or use SMS OTP</div>
                 <div style="flex:1;height:1px;background:rgba(255,255,255,0.08);"></div>
             </div>
 
@@ -1833,13 +1908,20 @@
                            maxlength="10" inputmode="numeric" autocomplete="tel-national" style="${INP}" />
                 </div>
                 <div>
-                    <label style="${LBL}">Email</label>
+                    <label style="${LBL}">Email <span style="text-transform:none;color:#5a6885;font-weight:400;">(optional)</span></label>
                     <input id="bootRegEmail" type="email" placeholder="you@example.com"
                            autocomplete="email" inputmode="email" style="${INP}" />
                 </div>
                 <div>
-                    <label style="${LBL}">OTP</label>
-                    ${otpFieldHtml('bootReg')}
+                    <label style="${LBL}">SMS OTP</label>
+                    <div style="display:flex;gap:8px;">
+                        <input id="bootRegOtp" type="text" placeholder="Enter OTP"
+                               inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                               style="${INP}flex:1;min-width:0;letter-spacing:2px;" />
+                        <button id="bootRegSendOtp" type="button" style="${BTN_OTP}">Send OTP</button>
+                    </div>
+                    <div id="bootRegOtpStatus"
+                         style="font-size:0.72rem;color:#7a89a8;margin-top:6px;min-height:1em;"></div>
                 </div>
             </div>
 
@@ -1855,7 +1937,41 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        wireSendOtp('bootReg', 'bootRegPhone', 'bootRegEmail');
+        // ── Phone OTP via Firebase Phone Auth ──
+        (function wirePhoneOtp() {
+            const btn = $('bootRegSendOtp');
+            const status = $('bootRegOtpStatus');
+            const setStatus = (t, c) => { if (status) { status.textContent = t; status.style.color = c || '#7a89a8'; } };
+
+            btn.addEventListener('click', async () => {
+                const phone = $('bootRegPhone').value.trim();
+                if (!PHONE_RE.test(phone)) return toast('Enter a valid 10-digit Indian mobile (starts 6–9)');
+
+                btn.disabled = true;
+                btn.textContent = 'Sending…';
+                setStatus('');
+
+                const res = await sendPhoneOtp(phone, 'bootRegSendOtp');
+                if (!res.ok) {
+                    toast('⚠️ ' + res.message);
+                    setStatus('❌ ' + res.message, '#ef4444');
+                    btn.disabled = false;
+                    btn.textContent = 'Send OTP';
+                    return;
+                }
+
+                toast('📱 SMS sent to ' + res.sentTo);
+                setStatus('✅ Code sent by SMS. Check your messages.', '#2fd992');
+
+                let cd = 60;
+                btn.textContent = 'Resend (' + cd + 's)';
+                const tick = setInterval(() => {
+                    cd--;
+                    if (cd <= 0) { clearInterval(tick); btn.disabled = false; btn.textContent = 'Send OTP'; }
+                    else btn.textContent = 'Resend (' + cd + 's)';
+                }, 1000);
+            });
+        })();
 
         // ── Google button ──
         $('bootRegGoogleBtn').addEventListener('click', async () => {
@@ -1914,8 +2030,8 @@
             if (!userid)                   return showErr('Please choose a username');
             if (!USERNAME_RE.test(userid)) return showErr('Username: 3–20 letters, numbers, _ or .');
             if (!PHONE_RE.test(phone))     return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
-            if (!EMAIL_RE.test(email))     return showErr('Please enter a valid email');
-            if (!otp)                      return showErr('Please enter the OTP');
+            if (email && !EMAIL_RE.test(email)) return showErr('Please enter a valid email or leave it blank');
+            if (!otp)                      return showErr('Please enter the SMS OTP');
 
             submitBtn.disabled = true;
             submitBtn.style.opacity = '0.7';
@@ -1927,11 +2043,11 @@
             if (avail && avail.phoneAvailable === false)    return fail('This phone number is already registered. Try signing in instead.');
 
             submitBtn.textContent = 'Verifying…';
-            const verify = await verifyOtpEmail(phone, otp);
+            const verify = await verifyPhoneOtp(otp);
             if (!verify.ok) return fail(verify.message || 'Invalid OTP');
 
             submitBtn.textContent = 'Registering…';
-            const res = await _finishRegistration(name, phone, userid, email);
+            const res = await _finishRegistration(name, phone, userid, email, 'phone');
             if (!res.ok) return fail(res.message || 'Registration failed');
 
             const screenEl = $('bootRegScreen');
@@ -2016,5 +2132,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v11 loaded — Google Sign-In integrated (boot screen + invite overlay), OTP flow, boot gate, invites, sessions, delete-account');
+    console.log('✨ enhancements.js v12 loaded — Phone Auth (SMS OTP) + Google Sign-In, invites, sessions, delete-account');
 })();
