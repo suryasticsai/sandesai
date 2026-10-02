@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v13 – Firebase bootstrap fix)
+// js/enhancements.js  (v14 – Google redirect ordering fix)
 // Adds features on top of script.js without touching it:
 //   • First-run registration gate (name + username + phone + SMS OTP)
 //   • Firebase Phone Auth (real SMS) — bootstraps Firebase if needed
@@ -14,10 +14,10 @@
 //   • Device session registration + verification
 //   • Auto-loads raginaMemory.js
 //
-// What changed vs v12:
-//   • getAuthInstance() / ensureWindowAuth() now trigger script.js's
-//     initFirebaseMessaging() if window.auth isn't ready yet.
-//     Fixes "Auth not ready" on the boot screen for brand-new users.
+// What changed vs v13:
+//   • onBoot() now checks getRedirectResult() FIRST — before any
+//     call that could trigger signInAnonymously() — so a returning
+//     Google redirect user isn't overwritten by an anonymous session.
 // ================================================================
 (function () {
     'use strict';
@@ -863,6 +863,7 @@
             if (e.code === 'auth/too-many-requests')    msg = 'Too many attempts. Try again in a while.';
             if (e.code === 'auth/quota-exceeded')       msg = 'SMS quota exceeded for today.';
             if (e.code === 'auth/captcha-check-failed') msg = 'ReCAPTCHA check failed. Refresh and retry.';
+            if (e.code === 'auth/operation-not-allowed') msg = 'SMS region not enabled. Enable India in Firebase Console → Authentication → Settings → SMS region policy.';
             return { ok: false, error: e.code || 'phone_auth_failed', message: msg };
         }
     }
@@ -2130,18 +2131,30 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 20. BOOT
+    // 20. BOOT — Google redirect check FIRST, before any anonymous sign-in
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
-        ensureWindowAuth();
-
-        // Handle the return leg of a mobile Google redirect sign-in
-        const googleUser = await handleGoogleRedirectResult();
-        if (googleUser) {
-            console.log('🔵 Google redirect result:', googleUser.email);
-            setTimeout(() => startGoogleRegistrationFlow(googleUser), 600);
-            return;
+        // ── STEP 1: Handle Google redirect result BEFORE anything else ──
+        // This must run before ensureWindowAuth() / initFirebaseMessaging(),
+        // because script.js calls signInAnonymously() which would overwrite
+        // the pending Google redirect session.
+        if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
+            try {
+                const authInstance = window.firebase.auth();
+                window.auth = authInstance;
+                const result = await authInstance.getRedirectResult();
+                if (result && result.user) {
+                    console.log('🔵 Google redirect result caught:', result.user.email);
+                    setTimeout(() => startGoogleRegistrationFlow(result.user), 400);
+                    return;
+                }
+            } catch (e) {
+                console.warn('getRedirectResult check failed:', e);
+            }
         }
+
+        // ── STEP 2: No pending redirect — bootstrap Firebase normally ──
+        ensureWindowAuth();
 
         const params = new URLSearchParams(location.search);
         bootHadInvite = params.has('join') || params.has('invite');
@@ -2173,5 +2186,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v13 loaded — Firebase bootstrap fix, Phone Auth, Google Sign-In');
+    console.log('✨ enhancements.js v14 loaded — Google redirect ordering fix, Phone Auth, Firebase bootstrap');
 })();
