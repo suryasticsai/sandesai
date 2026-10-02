@@ -4,11 +4,11 @@
 // ================================================================
 window.SANDESAI = {
     // ── Google Apps Script Web App (/exec URL) ──
-SHEET_API_URL:'https://script.google.com/macros/s/AKfycbxGO12SNgT-Y86ap3MGqfrdPTDxpCjo4ZIjm0PyspxMYdYj3vny7RvFKOSVit-Euni0/exec',
+    SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbzTLYqybTS1_Ql9SmLupd019ncohZEj8yEVJtabzAyyIZh_kC-E2Xz8sfU2KQ_w6Iib/exec',
 
     // ── Shared secret (must match Apps Script SECRET) ──
-    SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026', 
-ADMIN_PASSWORD: 'sandesai-admin-2026',
+    SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026',
+    ADMIN_PASSWORD: 'sandesai-admin-2026',
 
     // ── RAGina LLM endpoint ──
     RAGINA_ASK_URL: 'https://ragina-crawler-ragina.vercel.app/api/ask',
