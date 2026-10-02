@@ -4,7 +4,7 @@
 // ================================================================
 window.SANDESAI = {
     // ── Google Apps Script Web App (/exec URL) ──
-SHEET_API_URL:'https://script.google.com/macros/s/AKfycbyo3bZrwKSYN_9YeG_mMgokP0QAZnquiOoZNcKccAaPyoZynmXzPW-qrHK0bxTCVwve/exec',
+SHEET_API_URL:'https://script.google.com/macros/s/AKfycbxGO12SNgT-Y86ap3MGqfrdPTDxpCjo4ZIjm0PyspxMYdYj3vny7RvFKOSVit-Euni0/exec',
 
     // ── Shared secret (must match Apps Script SECRET) ──
     SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026', 
