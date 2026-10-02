@@ -120,7 +120,7 @@ function initFirebaseMessaging() {
         }
         db = firebase.firestore();
         auth = firebase.auth();
-        window.auth = auth;              // ← ADDED: exposes auth for enhancements.js (Google Sign-In UID)
+        window.auth = auth;              // ← exposes auth for enhancements.js (Google Sign-In UID)
         db.enablePersistence({ synchronizeTabs: true }).catch(err => console.warn('Persistence error:', err));
         firebaseReady = true;
         console.log('🔥 Firebase initialized');
@@ -759,12 +759,13 @@ function renderCallList() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderProfileView() {
     const savedUser = localStorage.getItem('neonUser');
-    let userName = 'User', userPhone = '';
+    let userName = 'User', userPhone = '', userUsername = '';
     if (savedUser) {
         try {
             const user = JSON.parse(savedUser);
             userName = user.name || 'User';
             userPhone = user.phone || '';
+            userUsername = user.userid || user.username || '';
         } catch (e) {}
     }
     const premNum = localStorage.getItem('premCallNumber');
@@ -773,6 +774,15 @@ function renderProfileView() {
     document.getElementById('profileAvatarText').textContent = userName.charAt(0).toUpperCase();
     document.getElementById('profileNameFull').textContent = userName;
     document.getElementById('profilePhoneFull').innerHTML = `<i class="fas fa-phone"></i> ${userPhone || '+91 9995554443'}`;
+
+    // Sandesai branded ID — display only, not an inbox
+    const idEl = document.getElementById('profileSandesaiId');
+    if (idEl) {
+        const id = userUsername || userPhone || '';
+        idEl.textContent = id ? id + '@sandesai.in' : '';
+        idEl.title = 'Your Sandesai ID';
+    }
+
     document.getElementById('profileTimeFull').innerHTML = `<i class="far fa-clock"></i> Last active: Just now`;
 
     const link = document.querySelector('.registration-link');
