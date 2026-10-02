@@ -138,8 +138,12 @@ function startMessaging() {
     myNumber = stored;
     document.getElementById('myNumberDisplay').textContent = myNumber;
 
-    auth.signInAnonymously().then(cred => {
-        const uid = cred.user.uid;
+    const signInPromise = auth.currentUser
+    ? Promise.resolve({ user: auth.currentUser })
+    : auth.signInAnonymously();
+
+signInPromise.then(cred => {
+    const uid = cred.user.uid;
         console.log('Auth success, UID:', uid);
         return db.collection('uids').doc(uid).get().then(doc => {
             if (doc.exists) {
