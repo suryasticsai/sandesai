@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v14 – Google redirect ordering fix)
+// js/enhancements.js  (v15 – reCAPTCHA fix)
 // Adds features on top of script.js without touching it:
 //   • First-run registration gate (name + username + phone + SMS OTP)
 //   • Firebase Phone Auth (real SMS) — bootstraps Firebase if needed
@@ -14,10 +14,11 @@
 //   • Device session registration + verification
 //   • Auto-loads raginaMemory.js
 //
-// What changed vs v13:
-//   • onBoot() now checks getRedirectResult() FIRST — before any
-//     call that could trigger signInAnonymously() — so a returning
-//     Google redirect user isn't overwritten by an anonymous session.
+// What changed vs v14:
+//   • ensureRecaptcha() now clears the previous verifier AND removes
+//     the old container before creating a fresh one. Fixes the
+//     "reCAPTCHA has already been rendered in this element" error
+//     when the user taps Send OTP more than once.
 // ================================================================
 (function () {
     'use strict';
@@ -49,7 +50,6 @@
     const $ = (id) => document.getElementById(id);
     const toast = (m) => { if (window.showToast) window.showToast(m); };
 
-    // Indian mobile: 10 digits, starts 6–9
     const PHONE_RE    = /^[6-9]\d{9}$/;
     const EMAIL_RE    = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
     const USERNAME_RE = /^[a-zA-Z0-9_.]{3,20}$/;
@@ -138,7 +138,6 @@
         });
     }
 
-    // Bootstrap Firebase if script.js hasn't done it yet.
     function ensureWindowAuth() {
         if (window.auth) return;
         if (typeof firebase === 'undefined') {
@@ -423,7 +422,6 @@
         }
     }
 
-    // ── Shared "Send OTP" button wiring (email OTP — used by invite overlay) ──
     function otpFieldHtml(prefix) {
         return `
             <div style="display:flex;gap:8px;">
@@ -492,18 +490,14 @@
         return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
     }
 
-    // 🔧 Bootstrap Firebase if script.js hasn't done it yet
     function getAuthInstance() {
-        // Already have it
         if (window.auth && window.auth.currentUser !== undefined) return window.auth;
 
-        // Make sure the SDK is loaded
         if (typeof firebase === 'undefined') {
             console.error('❌ Firebase SDK not loaded — check index.html script tags');
             return null;
         }
 
-        // Trigger script.js's Firebase init (idempotent, safe for unregistered users)
         try {
             if (typeof window.initFirebaseMessaging === 'function') {
                 window.initFirebaseMessaging();
@@ -512,7 +506,6 @@
             console.warn('initFirebaseMessaging threw:', e);
         }
 
-        // Now grab auth
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
@@ -820,19 +813,33 @@
     function ensureRecaptcha(buttonId) {
         const auth = getAuthInstance();
         if (!auth) return null;
+
+        // ✅ FIX: Clear any previous verifier BEFORE creating a new one.
+        // Prevents "reCAPTCHA has already been rendered in this element".
         if (_recaptchaVerifier) {
-            try { _recaptchaVerifier.clear(); } catch (e) {}
+            try {
+                _recaptchaVerifier.clear();
+                console.log('🧹 Cleared old reCAPTCHA verifier');
+            } catch (e) {
+                console.warn('Error clearing old reCAPTCHA verifier:', e);
+            }
             _recaptchaVerifier = null;
         }
+
+        // Remove any existing container to be extra safe
         let container = document.getElementById('recaptcha-container');
-        if (!container) {
-            container = document.createElement('div');
-            container.id = 'recaptcha-container';
-            container.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;';
-            document.body.appendChild(container);
+        if (container && container.parentNode) {
+            try { container.parentNode.removeChild(container); } catch (e) {}
         }
+
+        // Create a fresh container
+        container = document.createElement('div');
+        container.id = 'recaptcha-container';
+        container.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:99999;';
+        document.body.appendChild(container);
+
         try {
-            _recaptchaVerifier = new firebase.auth.RecaptchaVerifier(buttonId || 'recaptcha-container', {
+            _recaptchaVerifier = new firebase.auth.RecaptchaVerifier(container, {
                 size: 'invisible',
                 callback: () => {}
             });
@@ -859,11 +866,12 @@
         } catch (e) {
             console.error('sendPhoneOtp failed:', e);
             let msg = e.message || 'Could not send SMS.';
-            if (e.code === 'auth/invalid-phone-number') msg = 'Invalid phone number format.';
-            if (e.code === 'auth/too-many-requests')    msg = 'Too many attempts. Try again in a while.';
-            if (e.code === 'auth/quota-exceeded')       msg = 'SMS quota exceeded for today.';
-            if (e.code === 'auth/captcha-check-failed') msg = 'ReCAPTCHA check failed. Refresh and retry.';
-            if (e.code === 'auth/operation-not-allowed') msg = 'SMS region not enabled. Enable India in Firebase Console → Authentication → Settings → SMS region policy.';
+            if (e.code === 'auth/invalid-phone-number')          msg = 'Invalid phone number format.';
+            if (e.code === 'auth/too-many-requests')             msg = 'Too many attempts. Try again in a while.';
+            if (e.code === 'auth/quota-exceeded')                msg = 'SMS quota exceeded for today.';
+            if (e.code === 'auth/captcha-check-failed')          msg = 'reCAPTCHA check failed. Refresh and retry.';
+            if (e.code === 'auth/operation-not-allowed')         msg = 'SMS region not enabled. Enable India in Firebase Console → Authentication → Settings → SMS region policy.';
+            if (e.code === 'auth/billing-not-enabled')           msg = 'Firebase billing required for Phone Auth. Enable Blaze plan or switch to a free SMS provider.';
             return { ok: false, error: e.code || 'phone_auth_failed', message: msg };
         }
     }
@@ -1021,7 +1029,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. INVITE WELCOME OVERLAY (with Google + email OTP)
+    // 6. INVITE WELCOME OVERLAY
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         $('inviteWelcomeOverlay')?.remove();
@@ -1105,7 +1113,6 @@
 
         wireSendOtp('invite', 'invitePhone', 'inviteEmail');
 
-        // Google button on invite overlay
         $('inviteGoogleBtn').addEventListener('click', async () => {
             const btn = $('inviteGoogleBtn');
             btn.disabled = true;
@@ -1122,7 +1129,6 @@
             await startGoogleRegistrationFlow(user);
         });
 
-        // Email OTP join button
         $('inviteJoinBtn').addEventListener('click', async () => {
             const name  = $('inviteName').value.trim();
             const phone = $('invitePhone').value.trim();
@@ -1979,7 +1985,7 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        // ── Phone OTP via Firebase Phone Auth ──
+        // Phone OTP via Firebase Phone Auth
         (function wirePhoneOtp() {
             const btn = $('bootRegSendOtp');
             const status = $('bootRegOtpStatus');
@@ -2015,7 +2021,7 @@
             });
         })();
 
-        // ── Google button ──
+        // Google button
         $('bootRegGoogleBtn').addEventListener('click', async () => {
             const btn = $('bootRegGoogleBtn');
             btn.disabled = true;
@@ -2032,7 +2038,7 @@
             await startGoogleRegistrationFlow(user);
         });
 
-        // ── Username live check ──
+        // Username live check
         const useridInput = $('bootRegUserid');
         const userStatus = $('bootRegUserStatus');
         let useridCheckTimer = null;
@@ -2052,7 +2058,7 @@
             }, 500);
         });
 
-        // ── Register button ──
+        // Register button
         const submitBtn = $('bootRegSubmit');
         const errBox = $('bootRegError');
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
@@ -2131,13 +2137,10 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 20. BOOT — Google redirect check FIRST, before any anonymous sign-in
+    // 20. BOOT
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
-        // ── STEP 1: Handle Google redirect result BEFORE anything else ──
-        // This must run before ensureWindowAuth() / initFirebaseMessaging(),
-        // because script.js calls signInAnonymously() which would overwrite
-        // the pending Google redirect session.
+        // STEP 1: Handle Google redirect result BEFORE anything else
         if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
             try {
                 const authInstance = window.firebase.auth();
@@ -2153,7 +2156,7 @@
             }
         }
 
-        // ── STEP 2: No pending redirect — bootstrap Firebase normally ──
+        // STEP 2: No pending redirect — bootstrap Firebase normally
         ensureWindowAuth();
 
         const params = new URLSearchParams(location.search);
@@ -2186,5 +2189,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v14 loaded — Google redirect ordering fix, Phone Auth, Firebase bootstrap');
+    console.log('✨ enhancements.js v15 loaded — reCAPTCHA fix, Google redirect ordering, Phone Auth');
 })();
