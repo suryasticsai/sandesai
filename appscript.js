@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
-// Sandesai Apps Script · v10-schema-sessions
+// Sandesai Apps Script · v12-phone-auth
 //
 // Endpoints
 //   GET  ?type=health | business | knowledge
 //   GET  ?type=sendOtp&phone=…&email=…&secret=…
 //   GET  ?type=checkOtp&phone=…&code=…
 //   GET  ?type=checkAvailability&phone=…&username=…
+//   GET  ?type=checkUser&uid=…&email=…
 //   GET  ?type=userConversations&phone=…
 //   GET  ?pass=…[&type=conversations|pushTokens|sessions|users]
 //   POST {type: conversation | sendOtp | verifyOtp | checkAvailability |
@@ -13,24 +14,16 @@
 //               registerSession | verifySession | removeSession}
 //   POST {…registration…}                            (default)
 //
-// Changes vs v9
-//   • Sheet1 schema: Name|Username|Phone|Email|Created At|Last Login|UID|Status
-//     Auto-migration from the old 5-column layout, with phone-based dedupe.
-//   • Created At is preserved on re-registration; Last Login is updated.
-//   • Indian mobile validation (/^[6-9]\d{9}$/) for new sign-ups.
-//   • deleteAccount removes EVERY row for that phone, not just the first.
-//   • deleteAccount now REQUIRES a matching UID when one is stored.
-//   • OTPs sheet gains a Verified At column + 7-day auto-purge.
-//   • New Sessions sheet + registerSession / verifySession / removeSession.
-//   • Email captured at registration (and backfilled from the OTP record).
-//   • checkAvailability / sendOtp still work over GET (readable responses).
+// Changes vs v11
+//   • logRegistration now skips OTP gate for provider:'phone' too
+//   • (Phone OTP itself is handled entirely by Firebase Phone Auth)
 // ═══════════════════════════════════════════════════════════════
 
-const CODE_VERSION = 'v10-schema-sessions';
+const CODE_VERSION = 'v12-phone-auth';
 
 // ── App versioning ──
-const APP_VERSION     = '0.5';
-const MIN_APP_VERSION = '0.4';
+const APP_VERSION     = '0.7';
+const MIN_APP_VERSION = '0.5';
 const UPDATE_MESSAGE  = 'A new version of Sandesai is available. Please refresh to continue.';
 
 // ── Sheets ──
@@ -46,7 +39,8 @@ const REG_HEADERS     = ['Name', 'Username', 'Phone', 'Email', 'Created At', 'La
 const OTP_HEADERS     = ['Timestamp', 'Phone', 'Email', 'Code', 'Expires At', 'Email Status', 'Error', 'Verified At'];
 const SESSION_HEADERS = ['Phone', 'Token Hash', 'Device', 'Created', 'Last Seen', 'Expires'];
 
-const NOTIFY_EMAIL   = 'sandesaiapp@gmail.com';
+// ── Admin & Webhook Settings ──
+const NOTIFY_EMAIL   = 'sandesai@gmail.com';
 const SECRET         = 'sandesai-webhook-2026';
 const ADMIN_PASSWORD = 'sandesai-admin-2026';
 
@@ -65,11 +59,14 @@ const OTP_MIN_GAP_MS      = 30 * 1000;
 const OTP_RETENTION_DAYS  = 7;
 
 // ── Session config ──
-const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const REQUIRE_OTP_FOR_REGISTRATION = true;
 
-const SCHEMA_FLAG = 'schema_v10_done';
+const SCHEMA_FLAG = 'schema_v12_done';
+
+// ── Logo URL (used in OTP email) ──
+const LOGO_URL = 'https://suryasticsai.github.io/sandesai/sandesai-logo.png';
 
 // ═══════════════════════════════════════════════════════════════
 // POST
@@ -161,6 +158,19 @@ function doGet(e) {
         return checkAvailability({ phone: params.phone, username: params.username });
     }
 
+    if (type === 'checkuser') {
+        const uid   = String(params.uid || '').trim();
+        const email = String(params.email || '').trim();
+        const existing = (uid && findUserByUid(uid)) || (email && findUserByEmail(email));
+        return jsonResponse({
+            ok: true,
+            version: CODE_VERSION,
+            exists: !!existing,
+            registeredPhone: existing ? existing.phone : '',
+            registeredUsername: existing ? existing.username : ''
+        });
+    }
+
     // ─── PER-USER ───
     if (type === 'userconversations') {
         const phone = String(params.phone || '').trim();
@@ -225,7 +235,6 @@ function ensureSchema_() {
     }
 }
 
-// Run once manually if you ever need to force the migration to run again.
 function resetSchemaFlag() {
     PropertiesService.getScriptProperties().deleteProperty(SCHEMA_FLAG);
     Logger.log('Schema flag cleared — migration will run on the next request.');
@@ -239,21 +248,18 @@ function migrateRegistrationsSheet_() {
     const data = sheet.getDataRange().getValues();
     const headers = (data[0] || []).map(function (h) { return String(h || '').trim(); });
 
-    // Already new schema?
     if (headers[0] === 'Name' && headers[3] === 'Email' && headers[4] === 'Created At') return;
 
     const hasOldData = data.length > 1 && data.slice(1).some(function (r) {
         return String(r[2] || '').trim();
     });
 
-    // Empty sheet — just write the new header
     if (!hasOldData) {
         sheet.clearContents();
         sheet.getRange(1, 1, 1, REG_HEADERS.length).setValues([REG_HEADERS]);
         return;
     }
 
-    // Old layout: Name | Username | Phone | Registered At | UID
     const byPhone = {};
     const order = [];
 
@@ -275,7 +281,7 @@ function migrateRegistrationsSheet_() {
             order.push(phone);
         } else {
             const rec = byPhone[phone];
-            if (name)  rec.name = name;             // keep the latest non-empty
+            if (name)  rec.name = name;
             if (uname) rec.username = uname;
             if (uid)   rec.uid = uid;
             if (createdMs && (!rec.createdAt || createdMs < rec.createdAt)) rec.createdAt = createdMs;
@@ -286,14 +292,10 @@ function migrateRegistrationsSheet_() {
     const rows = order.map(function (phone) {
         const u = byPhone[phone];
         return [
-            u.name,
-            u.username,
-            u.phone,
-            u.email,
+            u.name, u.username, u.phone, u.email,
             u.createdAt ? new Date(u.createdAt).toISOString() : '',
             u.lastLogin ? new Date(u.lastLogin).toISOString() : '',
-            u.uid,
-            u.status
+            u.uid, u.status
         ];
     });
 
@@ -362,16 +364,20 @@ function logRegistration(body) {
         });
     }
 
-    // Registration must follow a verified OTP for this phone
-    if (REQUIRE_OTP_FOR_REGISTRATION && !consumeOtpVerified_(phone)) {
-        return jsonResponse({
-            ok: false,
-            error: 'otp_not_verified',
-            message: 'Verify your email OTP before registering.'
-        });
+    // Google and Phone auth have already verified identity via Firebase.
+    // Only the legacy email-OTP path needs the server-side OTP gate.
+    const provider = String(body.provider || 'otp').toLowerCase();
+    const skipOtp = (provider === 'google' || provider === 'phone');
+    if (REQUIRE_OTP_FOR_REGISTRATION && !skipOtp) {
+        if (!consumeOtpVerified_(phone)) {
+            return jsonResponse({
+                ok: false,
+                error: 'otp_not_verified',
+                message: 'Verify your OTP before registering.'
+            });
+        }
     }
 
-    // Backfill email from the OTP record if the client didn't send one
     if (!email) {
         try {
             const props = PropertiesService.getScriptProperties();
@@ -409,15 +415,22 @@ function logRegistration(body) {
 
     const nowIso = new Date().toISOString();
 
+    // Returning Google/Phone user? Match by UID or email so we update, not duplicate.
+    if (!phoneRows.length) {
+        const byUid   = uid   ? findUserByUid(uid)     : null;
+        const byEmail = email ? findUserByEmail(email) : null;
+        const match   = byUid || byEmail;
+        if (match) phoneRows.push(match.row);
+    }
+
     // ── Re-registration (possibly with stale duplicate rows) ──
     if (phoneRows.length) {
-        // Delete everything below the first match (bottom-up so indices stay valid)
         for (let i = phoneRows.length - 1; i >= 1; i--) sheet.deleteRow(phoneRows[i]);
 
         const keepRow = phoneRows[0];
         const cur = sheet.getRange(keepRow, 1, 1, REG_HEADERS.length).getValues()[0];
 
-        const createdAtIso = isoOrEmpty_(cur[4]) || nowIso;   // preserve original signup
+        const createdAtIso = isoOrEmpty_(cur[4]) || nowIso;
         const existingEmail = String(cur[3] || '');
         const existingUid   = String(cur[6] || '');
 
@@ -427,7 +440,7 @@ function logRegistration(body) {
             phone,
             email || existingEmail,
             createdAtIso,
-            nowIso,                       // Last Login
+            nowIso,
             uid || existingUid,
             'active'
         ]]);
@@ -437,6 +450,7 @@ function logRegistration(body) {
             '🔄 Re-registration', '#a78bfa',
             name, username, phone, email,
             '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">' +
+                'Provider: ' + provider + '<br>' +
                 'Duplicates removed: ' + (phoneRows.length - 1) +
             '</p>'
         );
@@ -455,7 +469,8 @@ function logRegistration(body) {
     notifyAdmin_(
         '🎉 New Sandesai user: ' + (name || phone),
         '🎉 New registration', '#a78bfa',
-        name, username, phone, email, ''
+        name, username, phone, email,
+        '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Provider: ' + provider + '</p>'
     );
 
     return jsonResponse({ ok: true, version: CODE_VERSION, created: true, row: sheet.getLastRow() });
@@ -504,6 +519,29 @@ function findUserByUsername(username) {
     return null;
 }
 
+function findUserByUid(uid) {
+    if (!uid) return null;
+    const sheet = getSheet(REGISTRATIONS_SHEET);
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][6] || '') === String(uid)) return rowToUser_(data[i], i + 1);
+    }
+    return null;
+}
+
+function findUserByEmail(email) {
+    if (!email) return null;
+    const sheet = getSheet(REGISTRATIONS_SHEET);
+    if (!sheet) return null;
+    const data = sheet.getDataRange().getValues();
+    const lower = String(email).toLowerCase();
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][3] || '').toLowerCase() === lower) return rowToUser_(data[i], i + 1);
+    }
+    return null;
+}
+
 function rowToUser_(r, row) {
     return {
         row: row,
@@ -528,7 +566,6 @@ function checkAvailability(body) {
     }
     if (username) {
         const byUser = findUserByUsername(username);
-        // A user's own username (same phone) still counts as available
         result.usernameAvailable = !byUser || (!!phone && byUser.phone === phone);
     }
     return jsonResponse(result);
@@ -552,7 +589,6 @@ function deleteAccount(body) {
         return jsonResponse({ ok: false, error: 'not_found', message: 'No account found for +91 ' + phone });
     }
 
-    // UID is now REQUIRED when we have one on file
     const suppliedUid = String(body.uid || '').trim();
     if (existing.uid) {
         if (!suppliedUid) {
@@ -567,7 +603,6 @@ function deleteAccount(body) {
         }
     }
 
-    // Remove EVERY row for this phone, not just the first
     const usersDeleted   = deleteRowsWhere_(REGISTRATIONS_SHEET, 2, phone);
     const convDeleted    = deleteRowsWhere_(CONVERSATIONS_SHEET, 1, phone);
     const tokensDeleted  = deleteRowsWhere_(PUSH_TOKENS_SHEET, 1, phone);
@@ -606,7 +641,6 @@ function deleteAccount(body) {
     });
 }
 
-// Delete every row whose column `colIdx` equals `value` (bottom-up). Returns count.
 function deleteRowsWhere_(sheetName, colIdx, value) {
     const sheet = getSheet(sheetName);
     if (!sheet) return 0;
@@ -827,7 +861,6 @@ function countUsers() {
     try { return readUsers().length; } catch (e) { return 0; }
 }
 
-// Manual / maintenance helper: collapse duplicate phones in Sheet1.
 function dedupeAllRegistrations_() {
     const sheet = getSheet(REGISTRATIONS_SHEET);
     if (!sheet) return 0;
@@ -935,7 +968,7 @@ function readUserConversations(phone, limit) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// OTP
+// OTP (email OTP — used by invite overlay only now)
 // ═══════════════════════════════════════════════════════════════
 function hashCode_(phone, code) {
     const bytes = Utilities.computeDigest(
@@ -980,7 +1013,6 @@ function sendOtp(body) {
     const code    = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = now + OTP_TTL_MS;
 
-    // ── Rate limit + store code (atomic) ──
     const gate = withLock_(function () {
         const rawRate = props.getProperty(rateKey);
         let rate = rawRate ? JSON.parse(rawRate) : { count: 0, resetAt: 0, lastAt: 0 };
@@ -1012,7 +1044,6 @@ function sendOtp(body) {
 
     if (!gate.ok) return jsonResponse(gate);
 
-    // ── Audit log first (code is NOT stored) ──
     let logRowIndex = -1;
     try {
         const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1030,7 +1061,6 @@ function sendOtp(body) {
         console.error('Audit log failed:', e);
     }
 
-    // ── Send email ──
     let emailStatus = 'sent';
     let emailError  = '';
     try {
@@ -1039,7 +1069,11 @@ function sendOtp(body) {
             subject: '🔐 Your Sandesai verification code',
             htmlBody:
                 '<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#0f0d24;color:#eef0f5;border-radius:16px;">' +
-                    '<h1 style="font-size:22px;margin:0 0 12px;color:#a78bfa;">Sandesai</h1>' +
+                    '<div style="text-align:center;margin-bottom:20px;">' +
+                        '<img src="' + LOGO_URL + '" alt="Sandesai" width="72" height="72" ' +
+                             'style="border-radius:50%;border:2px solid rgba(139,92,246,0.4);display:block;margin:0 auto 12px;" />' +
+                        '<h1 style="font-size:22px;margin:0;color:#a78bfa;">Sandesai</h1>' +
+                    '</div>' +
                     '<p style="color:#a5b3d0;font-size:14px;margin:0 0 20px;">Use this code to verify your account:</p>' +
                     '<div style="font-size:36px;font-weight:700;letter-spacing:8px;text-align:center;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);border-radius:12px;padding:20px 12px;color:#fff;margin:0 0 20px;">' +
                         code +
@@ -1055,7 +1089,6 @@ function sendOtp(body) {
         console.error('MailApp.sendEmail failed:', e);
     }
 
-    // ── Update audit row ──
     try {
         if (logRowIndex > 0) {
             const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(OTP_SHEET);
@@ -1065,7 +1098,6 @@ function sendOtp(body) {
     } catch (e) {}
 
     if (emailStatus !== 'sent') {
-        // Don't punish the user for our failure
         withLock_(function () {
             try {
                 const raw = props.getProperty(rateKey);
@@ -1175,7 +1207,6 @@ function consumeOtpVerified_(phone) {
         const raw = props.getProperty(key);
         if (!raw) return false;
         const valid = Date.now() < Number(raw);
-        // Keep the flag until expiry so retries of the same registration still work
         if (!valid) props.deleteProperty(key);
         return valid;
     });
@@ -1194,7 +1225,6 @@ function purgeOldOtpRows_() {
     return n;
 }
 
-// Daily time-driven trigger → this keeps everything tidy.
 function cleanupOtps() {
     const props = PropertiesService.getScriptProperties();
     const all = props.getProperties();
@@ -1229,13 +1259,11 @@ function cleanupOtps() {
     return cleaned;
 }
 
-// Run ONCE from the editor to grant the Gmail/MailApp permission, then redeploy.
 function authTest() {
     MailApp.sendEmail(Session.getActiveUser().getEmail(), 'Sandesai mail test', 'MailApp is authorized. Quota left: ' + safeMailQuota_());
     Logger.log('Mail OK. Remaining quota: ' + safeMailQuota_());
 }
 
-// Run ONCE manually to see what the migration did.
 function runMigrationNow() {
     resetSchemaFlag();
     ensureSchema_();
