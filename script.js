@@ -120,6 +120,7 @@ function initFirebaseMessaging() {
         }
         db = firebase.firestore();
         auth = firebase.auth();
+        window.auth = auth;              // ← ADDED: exposes auth for enhancements.js (Google Sign-In UID)
         db.enablePersistence({ synchronizeTabs: true }).catch(err => console.warn('Persistence error:', err));
         firebaseReady = true;
         console.log('🔥 Firebase initialized');
