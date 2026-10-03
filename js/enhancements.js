@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v20 – Registration OTP flow)
+// js/enhancements.js  (v21 – Mandatory password)
 // ================================================================
 (function () {
     'use strict';
@@ -15,7 +15,7 @@
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '1.0';
+    const LOCAL_APP_VERSION = '1.1';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -1604,10 +1604,10 @@
             </div>
 
             <div id="bootRegPasswordWrap" style="margin-top:14px;">
-                <label style="${LBL}">Password <span style="text-transform:none;color:#5a6885;font-weight:400;">(optional)</span></label>
+                <label style="${LBL}">Password</label>
                 <input id="bootRegPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
                 <div style="font-size:0.72rem;color:#5a6885;margin-top:6px;line-height:1.5;">
-                    Set a password if you'd like an alternative way to sign in. Otherwise you'll use the time-based token we email you.
+                    Your password is your backup sign-in. If your time code is ever locked, you'll use this to get back in.
                 </div>
             </div>
 
@@ -1622,7 +1622,6 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        // Wire Send OTP for registration
         (function wireRegOtp() {
             const sendBtn = $('bootRegSendOtp');
             const status = $('bootRegOtpStatus');
@@ -1735,7 +1734,8 @@
             if (!PHONE_RE.test(phone)) return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
             if (!EMAIL_RE.test(email)) return showErr('Please enter a valid email');
             if (!/^\d{6}$/.test(otpVal)) return showErr('Enter the 6-digit OTP sent to your email.');
-            if (password && password.length < 6) return showErr('Password must be at least 6 characters.');
+            if (!password) return showErr("Please set a password — it's your backup sign-in.");
+            if (password.length < 6) return showErr('Password must be at least 6 characters.');
 
             submitBtn.disabled = true;
             submitBtn.style.opacity = '0.7';
@@ -1756,10 +1756,10 @@
             submitBtn.textContent = 'Creating…';
 
             const payload = {
-                authMethod: password ? 'both' : 'totp',
-                name: name, username: userid, phone: phone, email: email
+                authMethod: 'both',
+                name: name, username: userid, phone: phone, email: email,
+                password: password
             };
-            if (password) payload.password = password;
 
             let regRes;
             try {
@@ -1770,7 +1770,7 @@
             } catch (e) { return fail('Network error. Please try again.'); }
             if (regRes && regRes.ok === false) return fail(regRes.message || regRes.error || 'Registration failed');
 
-            const userData = { name, userid, phone, email, registered: true, status: 'online', provider: password ? 'both' : 'totp' };
+            const userData = { name, userid, phone, email, registered: true, status: 'online', provider: 'both' };
             activateApp(userData);
             screen.remove();
             toast('✅ Welcome to Sandesai, ' + name + '!');
@@ -2132,5 +2132,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v20 loaded — registration OTP flow');
+    console.log('✨ enhancements.js v21 loaded — mandatory password');
 })();
