@@ -266,15 +266,6 @@ function formatTimeCode_(date, offsetMinutes) {
     return String(h).padStart(2, '0') + String(m).padStart(2, '0');
 }
 
-function verifyTimeCode_(inputCode, offsetMinutes) {
-    const now = Date.now();
-    const tolerance = [0, -60000, 60000, -120000, 120000];
-    for (let i = 0; i < tolerance.length; i++) {
-        if (formatTimeCode_(new Date(now + tolerance[i]), offsetMinutes) === String(inputCode).trim()) return true;
-    }
-    return false;
-}
-
 function formatTime12_(d) {
     let h = d.getHours();
     const m = String(d.getMinutes()).padStart(2, '0');
@@ -283,13 +274,13 @@ function formatTime12_(d) {
     return String(h).padStart(2, '0') + ':' + m + ' ' + ampm;
 }
 
-// Cryptic hint — never mentions HHMM, 12-hour clock, or time format
+// Cryptic hint — never reveals unit, format, or rotation
 function buildCrypticHint_(offset) {
-    if (!offset || offset === 0) return "You are right on time. No adjustment needed.";
+    if (!offset || offset === 0) return 'You are right on time. No adjustment needed.';
     const n = Math.abs(offset);
     const s = n === 1 ? 'step' : 'steps';
-    if (offset > 0) return "You are " + n + " " + s + " ahead of your time. Use it wisely.";
-    return "You are " + n + " " + s + " behind your time. Catch up wisely.";
+    if (offset > 0) return 'You are ' + n + ' ' + s + ' ahead of your time. Use it wisely.';
+    return 'You are ' + n + ' ' + s + ' behind your time. Catch up wisely.';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -328,8 +319,30 @@ function login(body) {
 
     if (method === 'totp') {
         const code = String(body.code || '').trim();
-        if (!/^\d{4}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 4 digits.' });
-        if (!verifyTimeCode_(code, user.timeOffset || 0)) {
+        if (!/^\d{4}$/.test(code)) {
+            return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 4 digits.' });
+        }
+
+        // Use the client-reported time so drift between device and server doesn't matter.
+        const clientTime = Number(body.clientTime) || Date.now();
+        const serverNow = Date.now();
+
+        // Sanity guard — reject absurdly skewed clocks (±3 min)
+        if (Math.abs(clientTime - serverNow) > 3 * 60 * 1000) {
+            return jsonResponse({
+                ok: false,
+                error: 'clock_skew',
+                message: 'Your device time looks wrong. Please check your date & time settings.'
+            });
+        }
+
+        // Expected code based on client time + user's secret offset.
+        // Allow ±1 minute so a code typed across a minute boundary still works.
+        const expected     = formatTimeCode_(new Date(clientTime), user.timeOffset || 0);
+        const expectedPrev = formatTimeCode_(new Date(clientTime - 60000), user.timeOffset || 0);
+        const expectedNext = formatTimeCode_(new Date(clientTime + 60000), user.timeOffset || 0);
+
+        if (code !== expected && code !== expectedPrev && code !== expectedNext) {
             return jsonResponse({ ok: false, error: 'wrong_code', message: 'Wrong code.' });
         }
     } else if (method === 'password') {
@@ -491,7 +504,6 @@ function resetPassword(body) {
         if (!sheet) return jsonResponse({ ok: false, error: 'no_sheet' });
         const newHash = hashPassword_(phone, newPassword);
         sheet.getRange(user.row, 10).setValue(newHash);
-        // Ensure authMethod includes password now
         const curMethod = String(sheet.getRange(user.row, 9).getValue() || 'totp');
         if (curMethod === 'totp') sheet.getRange(user.row, 9).setValue('both');
         sheet.getRange(user.row, 6).setValue(new Date().toISOString());
@@ -583,9 +595,7 @@ function logRegistration(body) {
         if (authMethod === 'google') {
             finalMethod = 'google';
         } else {
-            // Ensure we always have a TOTP offset
             if (!finalOffset) finalOffset = generateTimeOffset_();
-            // Store password if provided
             if (pw) {
                 if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
                 finalHash = hashPassword_(phone, pw);
@@ -627,7 +637,6 @@ function logRegistration(body) {
     if (authMethod === 'google') {
         finalMethod = 'google';
     } else {
-        // Always generate a TOTP offset
         finalOffset = generateTimeOffset_();
         if (pw) {
             if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
