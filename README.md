@@ -3,7 +3,7 @@
   <h1>🧠 Sandesai — AI Messenger</h1>
   <p><em>Production‑grade communication, reimagined for the AI era</em></p>
   <p><strong>Live Demo:</strong> <a href="https://suryasticsai.github.io/sandesai">suryasticsai.github.io/sandesai</a></p>
-  <p><strong>Concierge Demo:</strong> <a href="https://suryasticsai.github.io/sandesai/concierge.html">suryasticsai.github.io/sandesai/concierge.html</a></p>
+  <p><strong>Advertising Concierge Demo:</strong> <a href="https://suryasticsai.github.io/sandesai/concierge.html">suryasticsai.github.io/sandesai/concierge.html</a></p>
 </div>
 
 ---
