@@ -3,19 +3,10 @@
 // Edit values HERE. Every other file reads from window.SANDESAI.
 // ================================================================
 window.SANDESAI = {
-    // ── Google Apps Script Web App (/exec URL) ──
-    SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbzTLYqybTS1_Ql9SmLupd019ncohZEj8yEVJtabzAyyIZh_kC-E2Xz8sfU2KQ_w6Iib/exec',
-
-    // ── Shared secret (must match Apps Script SECRET) ──
+    SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbyRAbk9piL2uCLsQ67S1F3CA5qobAJzfYVSh9hXI_k6VJhjE2Ihy2--qS0h8tGQYZ8U/exec',
     SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026',
     ADMIN_PASSWORD: 'sandesai-admin-2026',
-
-    // ── RAGina LLM endpoint ──
     RAGINA_ASK_URL: 'https://ragina-crawler-ragina.vercel.app/api/ask',
-
-    // ── App branding ──
     APP_NAME: 'Sandesai',
     LOGO_URL: 'sandesai-logo.png',
 };
-
-console.log('⚙️ config.js loaded — all URLs from window.SANDESAI');
