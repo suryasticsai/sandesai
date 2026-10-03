@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v18 – Optional password + cryptic hint)
+// js/enhancements.js  (v19 – TOTP lock, unlock, disable, logout-all)
 // ================================================================
 (function () {
     'use strict';
@@ -9,7 +9,7 @@
 
     const CFG = window.SANDESAI || {};
     const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL ||
-        'https://script.google.com/macros/s/AKfycbzTLYqybTS1_Ql9SmLupd019ncohZEj8yEVJtabzAyyIZh_kC-E2Xz8sfU2KQ_w6Iib/exec';
+        'https://script.google.com/macros/s/AKfycbyRAbk9piL2uCLsQ67S1F3CA5qobAJzfYVSh9hXI_k6VJhjE2Ihy2--qS0h8tGQYZ8U/exec';
     const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
 
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
@@ -66,7 +66,7 @@
             });
             const text = await r.text();
             try { return JSON.parse(text); }
-            catch (e) { throw new Error('Backend returned non-JSON'); }
+            catch (e) { throw new Error('Backend returned non-JSON (redeploy?)'); }
         } finally { clearTimeout(timer); }
     }
 
@@ -75,8 +75,7 @@
     // ────────────────────────────────────────────────────────────
     function getAuthUid() {
         try {
-            if (window.auth && window.auth.currentUser && window.auth.currentUser.uid)
-                return window.auth.currentUser.uid;
+            if (window.auth && window.auth.currentUser && window.auth.currentUser.uid) return window.auth.currentUser.uid;
         } catch (e) {}
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
@@ -93,13 +92,10 @@
     function ensureWindowAuth() {
         if (window.auth) return;
         if (typeof firebase === 'undefined') return;
-        try {
-            if (typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging();
-        } catch (e) {}
+        try { if (typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging(); } catch (e) {}
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
-                console.log('🔧 window.auth assigned');
             }
         } catch (e) {}
     }
@@ -107,9 +103,7 @@
     function getAuthInstance() {
         if (window.auth && window.auth.currentUser !== undefined) return window.auth;
         if (typeof firebase === 'undefined') return null;
-        try {
-            if (typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging();
-        } catch (e) {}
+        try { if (typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging(); } catch (e) {}
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
@@ -222,7 +216,7 @@
             <div style="max-width:360px;width:100%;text-align:center;background:rgba(18,16,36,0.96);border:1px solid rgba(139,92,246,0.3);border-radius:24px;padding:32px 24px;box-shadow:0 40px 100px rgba(0,0,0,0.8);">
                 <div style="font-size:2.4rem;margin-bottom:12px;">🚀</div>
                 <div style="font-size:1.2rem;font-weight:700;margin-bottom:10px;">Update required</div>
-                <div style="font-size:0.85rem;color:#a5b3d0;line-height:1.5;margin-bottom:22px;">${escapeHtml(message || 'A new version is available. Please refresh.')}</div>
+                <div style="font-size:0.85rem;color:#a5b3d0;line-height:1.5;margin-bottom:22px;">${escapeHtml(message || 'A new version is available.')}</div>
                 <button id="forceUpdateBtn" style="${BTN_PRIMARY}padding:14px;">Refresh now</button>
             </div>`;
         document.body.appendChild(banner);
@@ -249,10 +243,7 @@
                 SHEET_WEBHOOK_URL + '?type=checkAvailability' +
                 '&username=' + encodeURIComponent(username || '') +
                 '&phone=' + encodeURIComponent(phone || ''), 12000);
-        } catch (e) {
-            console.warn('Availability check failed:', e);
-            return { ok: true, unchecked: true };
-        }
+        } catch (e) { return { ok: true, unchecked: true }; }
     }
 
     async function sendOtpEmail(phone, email) {
@@ -273,7 +264,7 @@
                 SHEET_WEBHOOK_URL + '?type=checkOtp' +
                 '&phone=' + encodeURIComponent(phone) +
                 '&code=' + encodeURIComponent(code));
-        } catch (e) { return { ok: false, error: 'network', message: 'Could not verify.' }; }
+        } catch (e) { return { ok: false, error: 'network' }; }
     }
 
     async function checkUserExists(uid, email) {
@@ -306,7 +297,6 @@
             const email = $(emailId).value.trim();
             if (!PHONE_RE.test(phone)) return toast('Enter a valid 10-digit Indian mobile (starts 6–9)');
             if (!EMAIL_RE.test(email)) return toast('Please enter a valid email');
-
             btn.disabled = true; btn.textContent = 'Sending…'; setStatus('');
             const res = await sendOtpEmail(phone, email);
             if (!res.ok) {
@@ -835,7 +825,323 @@
     setTimeout(injectInviteButton, 500);
 
     // ────────────────────────────────────────────────────────────
-    // 14. SETTINGS
+    // 14. LIVE TOKEN CARD
+    // ────────────────────────────────────────────────────────────
+    let _liveTokenTimer = null;
+
+    async function showLiveTokenCard() {
+        const phone = localStorage.getItem('premCallNumber');
+        if (!phone) { toast('Sign in first'); return; }
+        $('liveTokenModal')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'liveTokenModal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100300;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
+        overlay.innerHTML = `
+            <div style="max-width:420px;width:100%;background:rgba(18,16,36,0.98);border:1px solid rgba(139,92,246,.25);border-radius:24px;padding:28px 24px 22px;box-shadow:0 40px 100px rgba(0,0,0,.8);">
+                <div style="text-align:center;margin-bottom:18px;">
+                    <img src="sandesai-logo.png" alt="Sandesai" style="width:56px;height:56px;border-radius:50%;border:1px solid rgba(139,92,246,.3);margin-bottom:10px;" />
+                    <div style="font-size:1.05rem;font-weight:700;">Your live token</div>
+                    <div style="font-size:0.78rem;color:#7a89a8;margin-top:4px;">Refreshes every minute</div>
+                </div>
+
+                <div style="background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.32);border-radius:20px;padding:22px 18px;text-align:center;margin-bottom:16px;">
+                    <div id="liveCodeValue" style="display:inline-block;font-size:52px;font-weight:800;letter-spacing:14px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 28px rgba(139,92,246,.7);padding-left:14px;">••••</div>
+                    <div style="margin-top:14px;">
+                        <div style="height:4px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;">
+                            <div id="liveCodeBar" style="height:100%;width:100%;background:linear-gradient(90deg,#7c3aed,#6ee7ff);transition:width 1s linear;"></div>
+                        </div>
+                        <div id="liveCodeTimer" style="font-size:0.72rem;color:#7a89a8;margin-top:8px;">— s</div>
+                    </div>
+                </div>
+
+                <div id="liveHintBox" style="font-size:0.82rem;color:#c4b5fd;background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.25);border-radius:12px;padding:12px 14px;line-height:1.5;margin-bottom:16px;text-align:center;">—</div>
+
+                <button id="liveChangeOffset" style="${BTN_PRIMARY}">Change my offset</button>
+                <button id="liveDisableTotp" style="width:100%;padding:12px;margin-top:10px;border-radius:14px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.08);color:#ef4444;font-weight:600;font-size:0.85rem;cursor:pointer;font-family:inherit;">Turn off time code</button>
+                <button id="liveClose" style="${BTN_SECONDARY}">Close</button>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const codeEl = $('liveCodeValue');
+        const barEl = $('liveCodeBar');
+        const timerEl = $('liveCodeTimer');
+        const hintEl = $('liveHintBox');
+
+        async function refreshCode() {
+            try {
+                const res = await postJson({
+                    secret: SHEET_WEBHOOK_SECRET, type: 'getMyCode',
+                    phone: phone, token: getDeviceToken()
+                });
+                if (!res || !res.ok) {
+                    codeEl.textContent = '••••';
+                    hintEl.textContent = (res && res.message) || 'Could not load token.';
+                    if (res && res.error === 'totp_disabled') {
+                        // Hide the code card, show message
+                        $('liveDisableTotp').style.display = 'none';
+                    }
+                    return;
+                }
+                codeEl.textContent = res.code;
+                hintEl.textContent = res.hint;
+                const pct = (res.secondsRemaining / 60) * 100;
+                barEl.style.width = pct + '%';
+                timerEl.textContent = res.secondsRemaining + 's';
+            } catch (e) {
+                hintEl.textContent = 'Network error.';
+            }
+        }
+
+        refreshCode();
+        if (_liveTokenTimer) clearInterval(_liveTokenTimer);
+        _liveTokenTimer = setInterval(refreshCode, 1000);
+
+        $('liveClose').addEventListener('click', () => {
+            if (_liveTokenTimer) { clearInterval(_liveTokenTimer); _liveTokenTimer = null; }
+            overlay.remove();
+        });
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                if (_liveTokenTimer) { clearInterval(_liveTokenTimer); _liveTokenTimer = null; }
+                overlay.remove();
+            }
+        });
+        $('liveChangeOffset').addEventListener('click', () => {
+            if (_liveTokenTimer) { clearInterval(_liveTokenTimer); _liveTokenTimer = null; }
+            overlay.remove();
+            showChangeOffsetDialog(phone);
+        });
+        $('liveDisableTotp').addEventListener('click', () => {
+            if (_liveTokenTimer) { clearInterval(_liveTokenTimer); _liveTokenTimer = null; }
+            overlay.remove();
+            showDisableTotpDialog(phone);
+        });
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // 15. CHANGE OFFSET
+    // ────────────────────────────────────────────────────────────
+    function showChangeOffsetDialog(phone) {
+        $('changeOffsetModal')?.remove();
+        let currentOffset = 1;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'changeOffsetModal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100400;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
+        overlay.innerHTML = `
+            <div style="max-width:400px;width:100%;background:rgba(18,16,36,0.98);border:1px solid rgba(139,92,246,.25);border-radius:24px;padding:28px 24px 22px;box-shadow:0 40px 100px rgba(0,0,0,.8);">
+                <div style="text-align:center;margin-bottom:18px;">
+                    <div style="font-size:1.05rem;font-weight:700;">Change your offset</div>
+                    <div style="font-size:0.78rem;color:#7a89a8;margin-top:4px;line-height:1.5;">Pick a new offset between -9 and +9. Zero is not allowed.</div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:center;gap:18px;margin:20px 0;">
+                    <button id="offsetMinus" type="button" style="width:56px;height:56px;border-radius:50%;border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.12);color:#a78bfa;font-size:24px;font-weight:700;cursor:pointer;font-family:inherit;line-height:1;">−</button>
+                    <div style="min-width:120px;text-align:center;">
+                        <div id="offsetValue" style="font-size:44px;font-weight:800;color:#ffffff;font-family:'SF Mono',Menlo,monospace;line-height:1;">+1</div>
+                        <div id="offsetHint" style="font-size:0.75rem;color:#7a89a8;margin-top:6px;">1 step ahead</div>
+                    </div>
+                    <button id="offsetPlus" type="button" style="width:56px;height:56px;border-radius:50%;border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.12);color:#a78bfa;font-size:24px;font-weight:700;cursor:pointer;font-family:inherit;line-height:1;">+</button>
+                </div>
+                <div style="margin-bottom:14px;">
+                    <label style="${LBL}">Confirm with your password</label>
+                    <input id="offsetPassword" type="password" placeholder="Your password" autocomplete="current-password" style="${INP}" />
+                </div>
+                <div id="offsetError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-bottom:12px;"></div>
+                <button id="offsetSave" style="${BTN_PRIMARY}">Save new offset</button>
+                <button id="offsetCancel" style="${BTN_SECONDARY}">Cancel</button>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const valueEl = $('offsetValue');
+        const hintEl = $('offsetHint');
+        const errBox = $('offsetError');
+        const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
+        const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
+
+        function render() {
+            const sign = currentOffset >= 0 ? '+' : '';
+            valueEl.textContent = sign + currentOffset;
+            const abs = Math.abs(currentOffset);
+            const steps = abs === 1 ? 'step' : 'steps';
+            hintEl.textContent = abs + ' ' + steps + (currentOffset > 0 ? ' ahead' : ' behind');
+        }
+
+        $('offsetMinus').addEventListener('click', () => {
+            let next = currentOffset - 1;
+            if (next === 0) next = -1;
+            if (next < -9) next = -9;
+            currentOffset = next; render();
+        });
+        $('offsetPlus').addEventListener('click', () => {
+            let next = currentOffset + 1;
+            if (next === 0) next = 1;
+            if (next > 9) next = 9;
+            currentOffset = next; render();
+        });
+
+        $('offsetCancel').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        $('offsetSave').addEventListener('click', async () => {
+            clearErr();
+            const password = $('offsetPassword').value;
+            if (!password) return showErr('Password is required.');
+            const btn = $('offsetSave');
+            btn.disabled = true; btn.textContent = 'Saving…';
+            try {
+                const res = await postJson({
+                    secret: SHEET_WEBHOOK_SECRET, type: 'changeOffset',
+                    phone: phone, token: getDeviceToken(),
+                    password: password, newOffset: currentOffset
+                });
+                if (!res || !res.ok) {
+                    showErr((res && res.message) || 'Could not save.');
+                    btn.disabled = false; btn.textContent = 'Save new offset';
+                    return;
+                }
+                toast('✅ Offset updated. Your next code will use it.');
+                overlay.remove();
+            } catch (e) {
+                showErr('Network error.');
+                btn.disabled = false; btn.textContent = 'Save new offset';
+            }
+        });
+
+        render();
+        setTimeout(() => $('offsetPassword')?.focus(), 200);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // 16. DISABLE TOTP DIALOG
+    // ────────────────────────────────────────────────────────────
+    function showDisableTotpDialog(phone) {
+        $('disableTotpModal')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'disableTotpModal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100500;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
+        overlay.innerHTML = `
+            <div style="max-width:400px;width:100%;background:rgba(18,16,36,0.98);border:1px solid rgba(239,68,68,.25);border-radius:24px;padding:28px 24px 22px;box-shadow:0 40px 100px rgba(0,0,0,.8);">
+                <div style="text-align:center;margin-bottom:18px;">
+                    <div style="font-size:2.2rem;margin-bottom:8px;">⚠️</div>
+                    <div style="font-size:1.05rem;font-weight:700;color:#ef4444;">Turn off time code?</div>
+                    <div style="font-size:0.82rem;color:#a5b3d0;margin-top:8px;line-height:1.55;">
+                        After this, you'll sign in using only your password. Your live token will stop working.
+                    </div>
+                </div>
+
+                <div id="dtNoPassword" style="display:none;">
+                    <div style="font-size:0.8rem;color:#f59e0b;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px;margin-bottom:14px;line-height:1.5;">
+                        You don't have a password yet. Set one to turn off your time code.
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <label style="${LBL}">New password</label>
+                        <input id="dtNewPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
+                    </div>
+                </div>
+
+                <div id="dtHasPassword">
+                    <div style="margin-bottom:14px;">
+                        <label style="${LBL}">Confirm with your password</label>
+                        <input id="dtPassword" type="password" placeholder="Your password" autocomplete="current-password" style="${INP}" />
+                    </div>
+                </div>
+
+                <div id="dtError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-bottom:12px;"></div>
+
+                <button id="dtConfirm" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;box-shadow:0 8px 24px rgba(239,68,68,.35);">Turn off time code</button>
+                <button id="dtCancel" style="${BTN_SECONDARY}">Cancel</button>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const errBox = $('dtError');
+        const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
+        const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
+
+        // Determine whether the user has a password by calling checkLogin
+        (async () => {
+            try {
+                const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'checkLogin', phone: phone });
+                const hasPassword = !!(res && res.hasPassword);
+                if (hasPassword) {
+                    $('dtHasPassword').style.display = 'block';
+                    $('dtNoPassword').style.display = 'none';
+                } else {
+                    $('dtHasPassword').style.display = 'none';
+                    $('dtNoPassword').style.display = 'block';
+                    setTimeout(() => $('dtNewPassword')?.focus(), 100);
+                }
+            } catch (e) {
+                $('dtHasPassword').style.display = 'block';
+            }
+        })();
+
+        $('dtCancel').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        $('dtConfirm').addEventListener('click', async () => {
+            clearErr();
+            const btn = $('dtConfirm');
+            btn.disabled = true; btn.textContent = 'Disabling…';
+
+            const payload = {
+                secret: SHEET_WEBHOOK_SECRET, type: 'disableTotp',
+                phone: phone, token: getDeviceToken()
+            };
+            const hasPwEl = $('dtPassword');
+            const newPwEl = $('dtNewPassword');
+            if (hasPwEl && hasPwEl.offsetParent !== null) payload.password = hasPwEl.value;
+            if (newPwEl && newPwEl.offsetParent !== null) payload.newPassword = newPwEl.value;
+
+            try {
+                const res = await postJson(payload);
+                if (!res || !res.ok) {
+                    showErr((res && res.message) || 'Could not disable.');
+                    btn.disabled = false; btn.textContent = 'Turn off time code';
+                    return;
+                }
+                toast('✅ Time code is now off.');
+                overlay.remove();
+            } catch (e) {
+                showErr('Network error.');
+                btn.disabled = false; btn.textContent = 'Turn off time code';
+            }
+        });
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // 17. LOGOUT ALL DEVICES
+    // ────────────────────────────────────────────────────────────
+    async function confirmLogoutAllDevices() {
+        const phone = localStorage.getItem('premCallNumber');
+        if (!phone) return;
+
+        if (!confirm('Log out of every device (including this one)?\n\nYou will need to sign in again.')) return;
+
+        try {
+            const res = await postJson({
+                secret: SHEET_WEBHOOK_SECRET, type: 'logoutAllDevices',
+                phone: phone, token: getDeviceToken()
+            });
+            if (res && res.ok) {
+                toast('✅ Logged out of ' + (res.removed || 0) + ' device(s).');
+                try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}
+                setTimeout(() => location.reload(), 1200);
+            } else {
+                toast('⚠️ ' + ((res && res.message) || 'Could not log out.'));
+            }
+        } catch (e) {
+            toast('Network error.');
+        }
+    }
+
+    window.showLiveTokenCard = showLiveTokenCard;
+    window.showChangeOffsetDialog = showChangeOffsetDialog;
+    window.showDisableTotpDialog = showDisableTotpDialog;
+
+    // ────────────────────────────────────────────────────────────
+    // 18. SETTINGS
     // ────────────────────────────────────────────────────────────
     function addSettingRow(section, before, html, id) {
         if ($(id)) return null;
@@ -862,6 +1168,34 @@
 
         addSettingRow(section, logoutBtn, `<span><i class="fas fa-sync-alt"></i> Refresh connection</span><button class="reg-btn" id="refreshConnectionBtn"><i class="fas fa-rotate-right"></i></button>`, 'refreshConnectionBtn')
             ?.querySelector('#refreshConnectionBtn').addEventListener('click', window.refreshConnection);
+
+        // Live token
+        addSettingRow(section, logoutBtn, `
+            <span><i class="fas fa-key"></i> My live token</span>
+            <button class="reg-btn" id="liveTokenBtn" title="Show my current code">
+                <i class="fas fa-eye"></i>
+            </button>`, 'liveTokenBtn')
+            ?.querySelector('#liveTokenBtn').addEventListener('click', showLiveTokenCard);
+
+        // Change offset
+        addSettingRow(section, logoutBtn, `
+            <span><i class="fas fa-sliders"></i> Change my offset</span>
+            <button class="reg-btn" id="changeOffsetBtn" title="Adjust your secret offset">
+                <i class="fas fa-pen"></i>
+            </button>`, 'changeOffsetBtn')
+            ?.querySelector('#changeOffsetBtn').addEventListener('click', () => {
+                const phone = localStorage.getItem('premCallNumber');
+                if (!phone) return toast('Sign in first');
+                showChangeOffsetDialog(phone);
+            });
+
+        // Log out all devices
+        addSettingRow(section, logoutBtn, `
+            <span><i class="fas fa-right-from-bracket"></i> Log out all devices</span>
+            <button class="reg-btn" id="logoutAllBtn" title="Sign out everywhere">
+                <i class="fas fa-power-off"></i>
+            </button>`, 'logoutAllBtn')
+            ?.querySelector('#logoutAllBtn').addEventListener('click', confirmLogoutAllDevices);
 
         const getConsent = () => (window.RaginaMemory && window.RaginaMemory.getConsent()) || {};
         const setConsent = (patch) => {
@@ -905,7 +1239,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 15. CONSOLE COPY
+    // 19. CONSOLE COPY
     // ────────────────────────────────────────────────────────────
     function injectConsoleCopyButton() {
         const clearBtn = $('consoleClear');
@@ -937,7 +1271,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 16. AUTO-LOAD raginaMemory.js
+    // 20. AUTO-LOAD raginaMemory.js
     // ────────────────────────────────────────────────────────────
     (function loadRaginaMemory() {
         if (document.querySelector('script[src*="raginaMemory.js"]')) return;
@@ -963,7 +1297,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 17. DELETE ACCOUNT
+    // 21. DELETE ACCOUNT
     // ────────────────────────────────────────────────────────────
     function showDeleteAccountDialog() {
         $('deleteAccountDialog')?.remove();
@@ -1014,7 +1348,6 @@
             const errEl = $('deleteError');
             const showErr = (m) => { errEl.style.display = 'block'; errEl.textContent = m; };
             errEl.style.display = 'none';
-
             const uid = getAuthUid();
             if (!uid) { showErr('Cannot verify device. Refresh and try again.'); return; }
 
@@ -1040,7 +1373,7 @@
     window.showDeleteAccountDialog = showDeleteAccountDialog;
 
     // ────────────────────────────────────────────────────────────
-    // 18. RECOVERY MODAL
+    // 22. RECOVERY MODAL
     // ────────────────────────────────────────────────────────────
     function showRecoveryModal(phone, method) {
         $('recoveryModal')?.remove();
@@ -1143,7 +1476,7 @@
                         setStatus('✅ Password updated. You can now sign in.');
                         setTimeout(() => {
                             overlay.remove();
-                            toast('🔑 Password updated. Sign in with your new password.');
+                            toast('🔑 Password updated.');
                         }, 1500);
                     } else {
                         showErr((res && res.message) || 'Could not reset password.');
@@ -1162,7 +1495,108 @@
     window.showRecoveryModal = showRecoveryModal;
 
     // ────────────────────────────────────────────────────────────
-    // 19. REGISTRATION SCREEN
+    // 23. TOTP UNLOCK MODAL (when locked)
+    // ────────────────────────────────────────────────────────────
+    function showTotpUnlockModal(phone, opts) {
+        $('totpUnlockModal')?.remove();
+        opts = opts || {};
+        const hasPassword = !!opts.hasPassword;
+
+        const overlay = document.createElement('div');
+        overlay.id = 'totpUnlockModal';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100600;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
+        overlay.innerHTML = `
+            <div style="max-width:400px;width:100%;background:rgba(18,16,36,0.98);border:1px solid rgba(239,68,68,.25);border-radius:24px;padding:28px 24px 22px;box-shadow:0 40px 100px rgba(0,0,0,.8);">
+                <div style="text-align:center;margin-bottom:20px;">
+                    <div style="font-size:2.2rem;margin-bottom:8px;">🔒</div>
+                    <div style="font-size:1.15rem;font-weight:700;color:#ef4444;">Too many wrong codes</div>
+                    <div style="font-size:0.83rem;color:#a5b3d0;margin-top:6px;line-height:1.5;">
+                        Your time code is locked. Unlock it via email or sign in with your password.
+                    </div>
+                </div>
+
+                <div id="unlockStep1">
+                    <button id="unlockRequest" style="${BTN_PRIMARY}">Email me an unlock code</button>
+                </div>
+
+                <div id="unlockStep2" style="display:none;">
+                    <div style="margin-bottom:12px;">
+                        <label style="${LBL}">Unlock code (6 digits)</label>
+                        <input id="unlockCode" type="text" maxlength="6" inputmode="numeric" placeholder="123456" style="${INP}letter-spacing:6px;text-align:center;font-family:monospace;" />
+                    </div>
+                    <button id="unlockSubmit" style="${BTN_PRIMARY}">Unlock</button>
+                </div>
+
+                ${hasPassword ? `
+                    <button id="unlockUsePassword" style="${BTN_SECONDARY}">Use my password instead</button>
+                ` : ''}
+
+                <div id="unlockStatus" style="display:none;font-size:0.78rem;color:#2fd992;background:rgba(47,217,146,.08);border:1px solid rgba(47,217,146,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
+                <div id="unlockError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
+
+                <button id="unlockCancel" style="${BTN_SECONDARY}">Cancel</button>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const statusBox = $('unlockStatus');
+        const errorBox = $('unlockError');
+        const setStatus = (m) => { statusBox.style.display = 'block'; statusBox.textContent = m; };
+        const showErr = (m) => { errorBox.style.display = 'block'; errorBox.textContent = m; };
+        const clearErr = () => { errorBox.style.display = 'none'; errorBox.textContent = ''; };
+
+        $('unlockCancel').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        $('unlockRequest').addEventListener('click', async () => {
+            clearErr();
+            const btn = $('unlockRequest');
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'requestTotpUnlock', phone: phone });
+                if (res && res.ok) {
+                    setStatus('✅ Code sent to ' + res.sentTo);
+                    $('unlockStep1').style.display = 'none';
+                    $('unlockStep2').style.display = 'block';
+                    setTimeout(() => $('unlockCode')?.focus(), 100);
+                } else {
+                    showErr((res && res.message) || 'Could not send unlock code.');
+                    btn.disabled = false; btn.textContent = 'Email me an unlock code';
+                }
+            } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Email me an unlock code'; }
+        });
+
+        $('unlockSubmit').addEventListener('click', async () => {
+            clearErr();
+            const code = $('unlockCode').value.trim();
+            if (!/^\d{6}$/.test(code)) return showErr('Enter the 6-digit code.');
+            const btn = $('unlockSubmit');
+            btn.disabled = true; btn.textContent = 'Unlocking…';
+            try {
+                const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'unlockTotp', phone: phone, code: code });
+                if (res && res.ok) {
+                    setStatus('✅ Unlocked. You can try signing in again.');
+                    setTimeout(() => overlay.remove(), 1500);
+                } else {
+                    showErr((res && res.message) || 'Invalid code.');
+                    btn.disabled = false; btn.textContent = 'Unlock';
+                }
+            } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Unlock'; }
+        });
+
+        if (hasPassword) {
+            $('unlockUsePassword').addEventListener('click', () => {
+                overlay.remove();
+                if (typeof opts.onUsePassword === 'function') opts.onUsePassword();
+            });
+        }
+
+        setTimeout(() => $('unlockRequest')?.focus(), 200);
+    }
+
+    window.showTotpUnlockModal = showTotpUnlockModal;
+
+    // ────────────────────────────────────────────────────────────
+    // 24. REGISTRATION SCREEN
     // ────────────────────────────────────────────────────────────
     function isRegistered() {
         return !!localStorage.getItem('premCallRegisteredAt') &&
@@ -1244,7 +1678,6 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        // Google button
         $('bootRegGoogleBtn').addEventListener('click', async () => {
             const btn = $('bootRegGoogleBtn');
             btn.disabled = true; btn.style.opacity = '0.7';
@@ -1254,7 +1687,6 @@
             await startGoogleRegistrationFlow(user);
         });
 
-        // Username live check
         const useridInput = $('bootRegUserid');
         const userStatus = $('bootRegUserStatus');
         let timer = null;
@@ -1273,14 +1705,12 @@
             }, 500);
         });
 
-        // Switch to login
         $('bootRegLogin').addEventListener('click', () => {
             const phoneVal = $('bootRegPhone').value.trim();
             screen.remove();
             showLoginScreen(PHONE_RE.test(phoneVal) ? phoneVal : '');
         });
 
-        // Register
         const submitBtn = $('bootRegSubmit');
         const errBox = $('bootRegError');
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
@@ -1333,14 +1763,14 @@
             activateApp(userData);
             screen.remove();
             toast('✅ Welcome to Sandesai, ' + name + '!');
-            setTimeout(() => toast('📧 Check your email for your welcome message'), 1200);
+            setTimeout(() => toast('📧 Check your email for your live token'), 1200);
         });
 
         setTimeout(() => $('bootRegName')?.focus(), 400);
     }
 
     // ────────────────────────────────────────────────────────────
-    // 20. LOGIN SCREEN
+    // 25. LOGIN SCREEN
     // ────────────────────────────────────────────────────────────
     function showLoginScreen(prefillPhone) {
         $('loginScreen')?.remove();
@@ -1373,6 +1803,7 @@
                             <button id="loginInfoBtn" type="button" style="display:none;vertical-align:middle;margin-left:6px;width:18px;height:18px;border-radius:50%;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.12);color:#a78bfa;font-size:11px;font-weight:700;cursor:pointer;font-family:serif;line-height:1;padding:0;align-items:center;justify-content:center;">i</button>
                         </label>
                         <input id="loginTotpCode" type="text" placeholder="0000" maxlength="4" inputmode="numeric" style="${INP}letter-spacing:6px;text-align:center;font-family:'SF Mono',Menlo,monospace;font-size:1.4rem;" />
+                        <div id="loginHintBox" style="display:none;margin-top:10px;font-size:0.78rem;color:#c4b5fd;background:rgba(139,92,246,0.10);border:1px solid rgba(139,92,246,0.25);border-radius:12px;padding:10px 12px;line-height:1.5;"></div>
                         <div style="text-align:right;margin-top:6px;">
                             <button id="loginForgotCode" type="button" style="background:none;border:none;color:#a78bfa;font-size:0.75rem;cursor:pointer;font-family:inherit;text-decoration:underline;padding:4px 0;">Forgot your code? Resend welcome email</button>
                         </div>
@@ -1406,6 +1837,7 @@
         let userMethods = [];
         let userHint = '';
         let activeMethod = null;
+        let userHasPassword = false;
 
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
         const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
@@ -1415,10 +1847,18 @@
             pwBlock.style.display = activeMethod === 'password' ? 'block' : 'none';
             if (activeMethod === 'totp') {
                 const infoBtn = $('loginInfoBtn');
+                const hintBox = $('loginHintBox');
                 if (infoBtn) {
                     infoBtn.style.display = userHint ? 'inline-flex' : 'none';
-                    infoBtn.onclick = (e) => { e.preventDefault(); if (userHint) toast('ℹ️ ' + userHint); };
+                    infoBtn.onclick = (e) => {
+                        e.preventDefault();
+                        if (!userHint || !hintBox) return;
+                        const showing = hintBox.style.display !== 'none';
+                        if (showing) { hintBox.style.display = 'none'; infoBtn.style.opacity = '1'; }
+                        else { hintBox.textContent = userHint; hintBox.style.display = 'block'; infoBtn.style.opacity = '0.6'; }
+                    };
                 }
+                if (hintBox) hintBox.style.display = 'none';
                 setTimeout(() => $('loginTotpCode')?.focus(), 100);
             } else {
                 setTimeout(() => $('loginPassword')?.focus(), 100);
@@ -1452,8 +1892,30 @@
                     return showErr((res && res.message) || 'Could not find this number.');
                 }
 
+                // If TOTP is locked → show unlock modal
+                if (res.totpLocked) {
+                    submitBtn.disabled = false; submitBtn.textContent = 'Continue';
+                    return showTotpUnlockModal(phone, {
+                        hasPassword: !!res.hasPassword,
+                        onUsePassword: () => {
+                            // Reset and show password-only flow
+                            userMethods = ['password'];
+                            activeMethod = 'password';
+                            userHint = '';
+                            userHasPassword = true;
+                            methodLabel.textContent = 'Hi ' + (res.name || 'there') + '! Sign in with your password.';
+                            toggleRow.style.display = 'none';
+                            updateLoginFields();
+                            step2.style.display = 'block';
+                            phoneInput.disabled = true;
+                            submitBtn.textContent = 'Sign in';
+                        }
+                    });
+                }
+
                 userMethods = res.methods || ['totp'];
                 userHint = res.hint || '';
+                userHasPassword = !!res.hasPassword;
                 methodLabel.textContent = 'Hi ' + (res.name || 'there') + '! Choose how to sign in.';
                 activeMethod = userMethods[0];
 
@@ -1491,7 +1953,7 @@
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying…';
             const phone = phoneInput.value.trim();
-            const payload = { secret: SHEET_WEBHOOK_SECRET, type: 'login', phone: phone, method: activeMethod };
+            const payload = { secret: SHEET_WEBHOOK_SECRET, type: 'login', phone: phone, method: activeMethod, clientTime: Date.now() };
 
             if (activeMethod === 'totp') {
                 const code = $('loginTotpCode').value.trim();
@@ -1517,8 +1979,25 @@
             }
             if (!res || !res.ok) {
                 submitBtn.disabled = false; submitBtn.textContent = 'Sign in';
-                if (res && res.error === 'wrong_code') return showErr('Wrong code.');
+                if (res && res.error === 'totp_locked') {
+                    return showTotpUnlockModal(phone, {
+                        hasPassword: !!res.hasPassword,
+                        onUsePassword: () => {
+                            userMethods = ['password'];
+                            activeMethod = 'password';
+                            userHint = '';
+                            methodLabel.textContent = 'Sign in with your password.';
+                            toggleRow.style.display = 'none';
+                            updateLoginFields();
+                            submitBtn.textContent = 'Sign in';
+                        }
+                    });
+                }
+                if (res && res.error === 'wrong_code') return showErr('Wrong code. ' + ((res.triesLeft != null) ? res.triesLeft + ' tries left.' : ''));
                 if (res && res.error === 'wrong_password') return showErr('Wrong password. Try again.');
+                if (res && res.error === 'totp_disabled') {
+                    return showErr('Time code is disabled. Use your password.');
+                }
                 return showErr((res && res.message) || 'Sign in failed.');
             }
 
@@ -1552,7 +2031,7 @@
     window.showLoginScreen = showLoginScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 21. BOOT GATE
+    // 26. BOOT GATE
     // ────────────────────────────────────────────────────────────
     function bootRegistrationGate() {
         if ($('inviteWelcomeOverlay')) return;
@@ -1574,7 +2053,7 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 22. BOOT
+    // 27. BOOT
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
         if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
@@ -1622,5 +2101,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v18 loaded — optional password, method toggle, cryptic hint');
+    console.log('✨ enhancements.js v19 loaded — TOTP lock, unlock, disable, logout-all');
 })();
