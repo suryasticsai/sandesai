@@ -1,13 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v17 – TOTP + Password + Recovery)
-// Adds features on top of script.js without touching it:
-//   • Registration with Time Code (TOTP) or Password
-//   • Login screen for returning users
-//   • Recovery: resend welcome email (TOTP) / reset password via email
-//   • Google Sign-In
-//   • Email OTP for invite overlay
-//   • Duplicate checks, force-update banner, invites, sessions
-//   • Settings, delete-account, debug console copy
+// js/enhancements.js  (v18 – Optional password + cryptic hint)
 // ================================================================
 (function () {
     'use strict';
@@ -23,7 +15,7 @@
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '0.8';
+    const LOCAL_APP_VERSION = '0.9';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -74,12 +66,12 @@
             });
             const text = await r.text();
             try { return JSON.parse(text); }
-            catch (e) { throw new Error('Backend returned non-JSON (redeploy Code.gs?)'); }
+            catch (e) { throw new Error('Backend returned non-JSON'); }
         } finally { clearTimeout(timer); }
     }
 
     // ────────────────────────────────────────────────────────────
-    // 0b. FIREBASE AUTH (Google sign-in only)
+    // 0b. FIREBASE AUTH
     // ────────────────────────────────────────────────────────────
     function getAuthUid() {
         try {
@@ -98,19 +90,6 @@
         return '';
     }
 
-    function waitForAuthUid(maxMs) {
-        return new Promise((resolve) => {
-            const start = Date.now();
-            const tick = () => {
-                const uid = getAuthUid();
-                if (uid) return resolve(uid);
-                if (Date.now() - start > maxMs) return resolve('');
-                setTimeout(tick, 150);
-            };
-            tick();
-        });
-    }
-
     function ensureWindowAuth() {
         if (window.auth) return;
         if (typeof firebase === 'undefined') return;
@@ -120,7 +99,7 @@
         try {
             if (window.firebase && typeof window.firebase.auth === 'function') {
                 window.auth = window.firebase.auth();
-                console.log('🔧 window.auth assigned via ensureWindowAuth()');
+                console.log('🔧 window.auth assigned');
             }
         } catch (e) {}
     }
@@ -165,24 +144,20 @@
         if (!phone) return;
         try {
             const res = await postJson({
-                secret: SHEET_WEBHOOK_SECRET,
-                type: 'registerSession',
-                phone: phone,
-                token: getDeviceToken(),
+                secret: SHEET_WEBHOOK_SECRET, type: 'registerSession',
+                phone: phone, token: getDeviceToken(),
                 device: (navigator.userAgent || 'web').slice(0, 110)
             });
             if (res && res.ok) console.log('🔐 Session registered');
-        } catch (e) { console.warn('Session registration failed:', e); }
+        } catch (e) { console.warn('Session failed:', e); }
     }
 
     async function verifySessionWithServer(phone) {
         if (!phone) return { ok: false };
         try {
             return await postJson({
-                secret: SHEET_WEBHOOK_SECRET,
-                type: 'verifySession',
-                phone: phone,
-                token: getDeviceToken()
+                secret: SHEET_WEBHOOK_SECRET, type: 'verifySession',
+                phone: phone, token: getDeviceToken()
             });
         } catch (e) { return { ok: false, error: 'network' }; }
     }
@@ -193,18 +168,12 @@
     function signPayload(str) {
         let hash = 0;
         const s = INVITE_SECRET + '|' + str;
-        for (let i = 0; i < s.length; i++) {
-            hash = ((hash << 5) - hash) + s.charCodeAt(i);
-            hash = hash & hash;
-        }
+        for (let i = 0; i < s.length; i++) { hash = ((hash << 5) - hash) + s.charCodeAt(i); hash = hash & hash; }
         return Math.abs(hash).toString(36);
     }
 
     function createInviteToken({ from, to, chat, msg, name }) {
-        const payload = {
-            from, to, chat: chat || to, msg: msg || '',
-            name: name || '', exp: Date.now() + INVITE_TTL_MS
-        };
+        const payload = { from, to, chat: chat || to, msg: msg || '', name: name || '', exp: Date.now() + INVITE_TTL_MS };
         const d = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
         return d + '.' + signPayload(d);
     }
@@ -264,12 +233,9 @@
         try {
             const data = await fetchJson(SHEET_WEBHOOK_URL + '?type=health', 10000);
             if (!data.ok) return false;
-            console.log('🩺 Backend', data.version, '| quota:', data.mailQuotaRemaining);
+            console.log('🩺 Backend', data.version);
             const minV = data.minAppVersion;
-            if (minV && versionLess(LOCAL_APP_VERSION, minV)) {
-                showForceUpdateBanner(data.updateMessage);
-                return true;
-            }
+            if (minV && versionLess(LOCAL_APP_VERSION, minV)) { showForceUpdateBanner(data.updateMessage); return true; }
         } catch (e) { console.warn('Health check failed:', e.message || e); }
         return false;
     }
@@ -282,9 +248,7 @@
             return await fetchJson(
                 SHEET_WEBHOOK_URL + '?type=checkAvailability' +
                 '&username=' + encodeURIComponent(username || '') +
-                '&phone=' + encodeURIComponent(phone || ''),
-                12000
-            );
+                '&phone=' + encodeURIComponent(phone || ''), 12000);
         } catch (e) {
             console.warn('Availability check failed:', e);
             return { ok: true, unchecked: true };
@@ -297,13 +261,10 @@
                 SHEET_WEBHOOK_URL + '?type=sendOtp' +
                 '&secret=' + encodeURIComponent(SHEET_WEBHOOK_SECRET) +
                 '&phone=' + encodeURIComponent(phone) +
-                '&email=' + encodeURIComponent(email)
-            );
+                '&email=' + encodeURIComponent(email));
             if (!data.ok) return { ok: false, error: data.message || data.error || 'unknown' };
             return { ok: true, sentTo: data.sentTo };
-        } catch (e) {
-            return { ok: false, error: e.message || 'Network error' };
-        }
+        } catch (e) { return { ok: false, error: e.message || 'Network error' }; }
     }
 
     async function verifyOtpEmail(phone, code) {
@@ -311,11 +272,8 @@
             return await fetchJson(
                 SHEET_WEBHOOK_URL + '?type=checkOtp' +
                 '&phone=' + encodeURIComponent(phone) +
-                '&code=' + encodeURIComponent(code)
-            );
-        } catch (e) {
-            return { ok: false, error: 'network', message: 'Could not verify.' };
-        }
+                '&code=' + encodeURIComponent(code));
+        } catch (e) { return { ok: false, error: 'network', message: 'Could not verify.' }; }
     }
 
     async function checkUserExists(uid, email) {
@@ -323,12 +281,8 @@
             return await fetchJson(
                 SHEET_WEBHOOK_URL + '?type=checkUser' +
                 '&uid=' + encodeURIComponent(uid || '') +
-                '&email=' + encodeURIComponent(email || ''),
-                12000
-            );
-        } catch (e) {
-            return { ok: false, unchecked: true };
-        }
+                '&email=' + encodeURIComponent(email || ''), 12000);
+        } catch (e) { return { ok: false, unchecked: true }; }
     }
 
     function otpFieldHtml(prefix) {
@@ -353,22 +307,16 @@
             if (!PHONE_RE.test(phone)) return toast('Enter a valid 10-digit Indian mobile (starts 6–9)');
             if (!EMAIL_RE.test(email)) return toast('Please enter a valid email');
 
-            btn.disabled = true;
-            btn.textContent = 'Sending…';
-            setStatus('');
-
+            btn.disabled = true; btn.textContent = 'Sending…'; setStatus('');
             const res = await sendOtpEmail(phone, email);
             if (!res.ok) {
                 toast('Could not send OTP: ' + res.error);
                 setStatus('❌ ' + res.error, '#ef4444');
-                btn.disabled = false;
-                btn.textContent = 'Send OTP';
+                btn.disabled = false; btn.textContent = 'Send OTP';
                 return;
             }
-
             toast('📧 Code sent to ' + (res.sentTo || email));
             setStatus('✅ Sent to ' + (res.sentTo || email) + '. Check inbox & spam.', '#2fd992');
-
             let cd = 60;
             btn.textContent = 'Resend (' + cd + 's)';
             const tick = setInterval(() => {
@@ -380,11 +328,9 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 3b. GOOGLE SIGN-IN
+    // 3b. GOOGLE
     // ────────────────────────────────────────────────────────────
-    function isMobileUA() {
-        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    }
+    function isMobileUA() { return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
 
     async function signInWithGoogle() {
         const auth = getAuthInstance();
@@ -397,8 +343,7 @@
             return result.user || null;
         } catch (e) {
             if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) {
-                await auth.signInWithRedirect(provider);
-                return null;
+                await auth.signInWithRedirect(provider); return null;
             }
             if (e && (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request')) return null;
             console.error('Google sign-in failed:', e);
@@ -423,18 +368,12 @@
         const email = googleUser.email || '';
         const name = googleUser.displayName || (email.split('@')[0] || '');
         console.log('🔵 Google user:', { uid, email, name });
-
         const check = await checkUserExists(uid, email);
         if (check && check.exists && check.registeredPhone) {
             const phone = check.registeredPhone;
-            const userData = {
-                name, userid: check.registeredUsername || name,
-                phone, email, registered: true, status: 'online', provider: 'google'
-            };
+            const userData = { name, userid: check.registeredUsername || name, phone, email, registered: true, status: 'online', provider: 'google' };
             activateApp(userData);
-            $('bootRegScreen')?.remove();
-            $('loginScreen')?.remove();
-            $('googlePhoneStep')?.remove();
+            $('bootRegScreen')?.remove(); $('loginScreen')?.remove(); $('googlePhoneStep')?.remove();
             toast('👋 Welcome back, ' + name + '!');
             const pending = window._pendingInvitePayload;
             if (pending) {
@@ -455,9 +394,7 @@
         overlay.innerHTML = `
             <div style="max-width:400px;width:100%;margin:auto 0;background:rgba(18,16,36,0.92);border:1px solid rgba(255,255,255,0.07);border-radius:28px;padding:32px 26px 26px;box-shadow:0 40px 100px rgba(0,0,0,0.7);">
                 <div style="text-align:center;margin-bottom:22px;">
-                    ${gUser.photo
-                        ? `<img src="${escapeHtml(gUser.photo)}" style="width:72px;height:72px;border-radius:50%;border:2px solid rgba(139,92,246,0.4);margin-bottom:10px;object-fit:cover;" />`
-                        : `<div style="width:72px;height:72px;border-radius:50%;margin:0 auto 10px;background:linear-gradient(135deg,#7c3aed,#6ee7ff);display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:700;color:#fff;">${escapeHtml((gUser.name || '?').charAt(0).toUpperCase())}</div>`}
+                    ${gUser.photo ? `<img src="${escapeHtml(gUser.photo)}" style="width:72px;height:72px;border-radius:50%;border:2px solid rgba(139,92,246,0.4);margin-bottom:10px;object-fit:cover;" />` : `<div style="width:72px;height:72px;border-radius:50%;margin:0 auto 10px;background:linear-gradient(135deg,#7c3aed,#6ee7ff);display:flex;align-items:center;justify-content:center;font-size:1.8rem;font-weight:700;color:#fff;">${escapeHtml((gUser.name || '?').charAt(0).toUpperCase())}</div>`}
                     <div style="font-size:1.15rem;font-weight:700;">Hi, ${escapeHtml(gUser.name || 'there')}!</div>
                     <div style="font-size:0.8rem;color:#7a89a8;margin-top:4px;">${escapeHtml(gUser.email || '')}</div>
                     <div style="font-size:0.85rem;color:#a5b3d0;margin-top:14px;line-height:1.5;">One last step — add your phone number so friends can find you.</div>
@@ -475,7 +412,7 @@
                 </div>
                 <div id="gPhoneError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:12px;padding:10px 12px;margin-top:14px;"></div>
                 <button id="gPhoneSubmit" style="${BTN_PRIMARY}margin-top:20px;">Complete sign-up</button>
-                <button id="gPhoneBack" style="width:100%;padding:10px;margin-top:8px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#7a89a8;font-size:0.82rem;cursor:pointer;font-family:inherit;">Use a different account</button>
+                <button id="gPhoneBack" style="${BTN_SECONDARY}">Use a different account</button>
             </div>`;
         document.body.appendChild(overlay);
 
@@ -484,7 +421,6 @@
         const phoneInput = $('gPhonePhone');
         const submitBtn = $('gPhoneSubmit');
         const errBox = $('gPhoneError');
-
         const setUserStatus = (t, c) => { userStatus.textContent = t; userStatus.style.color = c || '#7a89a8'; };
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
         const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
@@ -528,35 +464,17 @@
             let regRes;
             try {
                 regRes = await postJson({
-                    secret: SHEET_WEBHOOK_SECRET,
-                    type: 'registration',
-                    provider: 'google',
-                    authMethod: 'google',
-                    name: gUser.name || '',
-                    username: userid,
-                    phone: phone,
-                    email: gUser.email || '',
-                    uid: gUser.uid
+                    secret: SHEET_WEBHOOK_SECRET, type: 'registration', provider: 'google', authMethod: 'google',
+                    name: gUser.name || '', username: userid, phone: phone, email: gUser.email || '', uid: gUser.uid
                 });
-            } catch (e) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Complete sign-up';
-                return showErr('Network error. Try again.');
-            }
-            if (regRes && regRes.ok === false) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Complete sign-up';
-                return showErr(regRes.message || regRes.error || 'Registration failed');
-            }
+            } catch (e) { submitBtn.disabled = false; submitBtn.textContent = 'Complete sign-up'; return showErr('Network error.'); }
+            if (regRes && regRes.ok === false) { submitBtn.disabled = false; submitBtn.textContent = 'Complete sign-up'; return showErr(regRes.message || 'Registration failed'); }
 
             const userData = { name: gUser.name, userid, phone, email: gUser.email, registered: true, status: 'online', provider: 'google' };
             activateApp(userData);
-            overlay.remove();
-            $('bootRegScreen')?.remove();
-            $('loginScreen')?.remove();
+            overlay.remove(); $('bootRegScreen')?.remove(); $('loginScreen')?.remove();
             toast('✅ Welcome to Sandesai, ' + (gUser.name || 'friend') + '!');
             showWelcomePopup(gUser.name);
-
             const pending = window._pendingInvitePayload;
             if (pending) {
                 window._pendingInvitePayload = null;
@@ -565,7 +483,7 @@
             }
         });
 
-        setTimeout(() => useridinput?.focus(), 400);
+        setTimeout(() => useridInput?.focus(), 400);
     }
 
     window.signInWithGoogle = signInWithGoogle;
@@ -581,17 +499,8 @@
         const senderName = userData.name || 'Someone';
         const url = buildInviteURL(createInviteToken({ from: me, to: peer, chat: peer, name: senderName }));
         const text = `👋 ${senderName} invited you to Sandesai.\n\nTap to open the chat:\n${url}`;
-        if (navigator.share) {
-            try { await navigator.share({ title: 'Sandesai Invite', text }); return; }
-            catch (err) { if (err.name === 'AbortError') return; }
-        }
-        if (navigator.clipboard) {
-            try {
-                await navigator.clipboard.writeText(text);
-                toast('📋 Invite copied');
-                return;
-            } catch (e) {}
-        }
+        if (navigator.share) { try { await navigator.share({ title: 'Sandesai Invite', text }); return; } catch (err) { if (err.name === 'AbortError') return; } }
+        if (navigator.clipboard) { try { await navigator.clipboard.writeText(text); toast('📋 Invite copied'); return; } catch (e) {} }
     }
 
     async function shareInviteOpen() {
@@ -600,14 +509,8 @@
         const senderName = userData.name || 'Someone';
         const url = buildInviteURL(createInviteToken({ from: me, to: '', chat: me, name: senderName }));
         const text = `👋 Join me on Sandesai!\n\n${url}`;
-        if (navigator.share) {
-            try { await navigator.share({ title: 'Join Sandesai', text }); return; }
-            catch (e) { if (e.name === 'AbortError') return; }
-        }
-        if (navigator.clipboard) {
-            await navigator.clipboard.writeText(text);
-            toast('📋 Invite copied');
-        }
+        if (navigator.share) { try { await navigator.share({ title: 'Join Sandesai', text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+        if (navigator.clipboard) { await navigator.clipboard.writeText(text); toast('📋 Invite copied'); }
     }
 
     window.shareInviteForPeer = shareInviteForPeer;
@@ -616,28 +519,19 @@
     // ────────────────────────────────────────────────────────────
     // 5. LOCAL SESSION
     // ────────────────────────────────────────────────────────────
-    function saveLocalSession(userData) {
+    function activateApp(userData) {
         localStorage.setItem('neonUser', JSON.stringify(userData));
         localStorage.setItem('premCallNumber', userData.phone);
         localStorage.setItem('premCallVerified', 'true');
         localStorage.setItem('premCallRegisteredAt', String(Date.now()));
-    }
-
-    function activateApp(userData) {
-        saveLocalSession(userData);
         registerSessionWithServer(userData.phone);
-        if (window.PremCall) {
-            try { window.PremCall.reinit ? window.PremCall.reinit(userData.phone) : window.PremCall.init(userData.phone); } catch (e) {}
-        }
+        if (window.PremCall) { try { window.PremCall.reinit ? window.PremCall.reinit(userData.phone) : window.PremCall.init(userData.phone); } catch (e) {} }
         if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging();
         setTimeout(() => {
             if (window.db && userData.phone) {
                 window.db.collection('profiles').doc(userData.phone).set({
-                    phone: userData.phone,
-                    name: userData.name,
-                    username: userData.userid,
-                    email: userData.email || '',
-                    updatedAt: Date.now()
+                    phone: userData.phone, name: userData.name, username: userData.userid,
+                    email: userData.email || '', updatedAt: Date.now()
                 }, { merge: true }).catch(() => {});
             }
             if (typeof window.initCallSignaling === 'function') window.initCallSignaling();
@@ -645,18 +539,15 @@
             if (typeof window.renderChatList === 'function') window.renderChatList();
             if (typeof window.renderCallList === 'function') window.renderCallList();
         }, 1200);
-        const mn = $('myNumberDisplay');
-        if (mn) mn.textContent = userData.phone;
-        const dot = $('headerStatusDot');
-        if (dot) dot.className = 'status-dot connecting';
+        const mn = $('myNumberDisplay'); if (mn) mn.textContent = userData.phone;
+        const dot = $('headerStatusDot'); if (dot) dot.className = 'status-dot connecting';
         if (typeof window.updateStatusBadge === 'function') window.updateStatusBadge(userData);
         if (typeof window.renderProfileView === 'function') window.renderProfileView();
-        const link = document.querySelector('.registration-link');
-        if (link) link.style.display = 'none';
+        const link = document.querySelector('.registration-link'); if (link) link.style.display = 'none';
     }
 
     // ────────────────────────────────────────────────────────────
-    // 6. INVITE WELCOME OVERLAY
+    // 6. INVITE OVERLAY
     // ────────────────────────────────────────────────────────────
     function showInviteWelcomeOverlay(payload) {
         $('inviteWelcomeOverlay')?.remove();
@@ -706,7 +597,6 @@
                 <button id="inviteJoinBtn" style="${BTN_PRIMARY}margin-top:20px;">🚀 Join & open chat</button>
             </div>`;
         document.body.appendChild(overlay);
-
         wireSendOtp('invite', 'invitePhone', 'inviteEmail');
 
         $('inviteGoogleBtn').addEventListener('click', async () => {
@@ -732,45 +622,24 @@
             const joinBtn = $('inviteJoinBtn');
             joinBtn.disabled = true;
             joinBtn.textContent = 'Verifying…';
-
             const verify = await verifyOtpEmail(phone, otp);
-            if (!verify.ok) {
-                toast('⚠️ ' + (verify.message || 'Invalid OTP'));
-                joinBtn.disabled = false;
-                joinBtn.textContent = '🚀 Join & open chat';
-                return;
-            }
+            if (!verify.ok) { toast('⚠️ ' + (verify.message || 'Invalid OTP')); joinBtn.disabled = false; joinBtn.textContent = '🚀 Join & open chat'; return; }
 
             let regRes;
             try {
                 regRes = await postJson({
-                    secret: SHEET_WEBHOOK_SECRET,
-                    type: 'registration',
-                    provider: 'otp',
-                    authMethod: 'totp',
-                    name: name,
-                    username: name.toLowerCase().replace(/\s/g, ''),
-                    phone: phone,
-                    email: email
+                    secret: SHEET_WEBHOOK_SECRET, type: 'registration', provider: 'otp', authMethod: 'totp',
+                    name: name, username: name.toLowerCase().replace(/\s/g, ''), phone: phone, email: email
                 });
             } catch (e) { regRes = { ok: false, message: 'Network error' }; }
-
-            if (!regRes || regRes.ok === false) {
-                toast('⚠️ ' + ((regRes && regRes.message) || 'Registration failed'));
-                joinBtn.disabled = false;
-                joinBtn.textContent = '🚀 Join & open chat';
-                return;
-            }
+            if (!regRes || regRes.ok === false) { toast('⚠️ ' + ((regRes && regRes.message) || 'Registration failed')); joinBtn.disabled = false; joinBtn.textContent = '🚀 Join & open chat'; return; }
 
             const userData = { name, userid: name.toLowerCase().replace(/\s/g, ''), phone, email, registered: true, status: 'online' };
             activateApp(userData);
             overlay.remove();
             showWelcomePopup(name);
-
             const isIntendedRecipient = !isTargeted || phone === payload.to;
-            if (isIntendedRecipient && (payload.from || payload.chat)) {
-                setTimeout(() => openChatWhenReady(payload.from || payload.chat), 800);
-            }
+            if (isIntendedRecipient && (payload.from || payload.chat)) setTimeout(() => openChatWhenReady(payload.from || payload.chat), 800);
         });
     }
 
@@ -834,12 +703,7 @@
         const token = params.get('join');
         if (!token) return;
         const payload = decodeInviteToken(token);
-        if (!payload) {
-            toast('⚠️ Invite link expired or invalid');
-            history.replaceState({}, '', location.pathname);
-            return;
-        }
-        console.log('🎟️ Valid invite token:', payload);
+        if (!payload) { toast('⚠️ Invite link expired or invalid'); history.replaceState({}, '', location.pathname); return; }
         if (localStorage.getItem('premCallRegisteredAt')) {
             const myNum = localStorage.getItem('premCallNumber');
             if (myNum && payload.chat) {
@@ -872,9 +736,8 @@
                     if (window.PremCall.reinit) window.PremCall.reinit(storedNum);
                     else window.PremCall.init(storedNum);
                 }
-                if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') {
-                    window.initFirebaseMessaging();
-                } else {
+                if (!window.firebaseReady && typeof window.initFirebaseMessaging === 'function') window.initFirebaseMessaging();
+                else {
                     if (typeof window.initCallSignaling === 'function') window.initCallSignaling();
                     if (typeof window.initCallLogSync === 'function') window.initCallLogSync();
                 }
@@ -882,10 +745,7 @@
                 if (typeof window.renderCallList === 'function') window.renderCallList();
                 if (storedNum) registerSessionWithServer(storedNum);
                 setTimeout(() => { toast('✅ Connection refreshed'); if (btn) btn.classList.remove('spinning'); }, 900);
-            } catch (e) {
-                toast('Refresh failed: ' + e.message);
-                if (btn) btn.classList.remove('spinning');
-            }
+            } catch (e) { toast('Refresh failed: ' + e.message); if (btn) btn.classList.remove('spinning'); }
         };
     }
 
@@ -897,20 +757,18 @@
         window.initCallLogSync = function () {
             if (!window.db || !window.myNumber) return;
             if (window.callLogsUnsub) { try { window.callLogsUnsub(); } catch (e) {} window.callLogsUnsub = null; }
-            window.callLogsUnsub = window.db.collection('call_logs')
-                .where('owner', '==', window.myNumber)
-                .onSnapshot(snapshot => {
-                    try {
-                        const remoteLogs = snapshot.docs.map(doc => doc.data());
-                        const localLogs = JSON.parse(localStorage.getItem('premCallLogs')) || [];
-                        const byId = new Map();
-                        localLogs.forEach(l => byId.set(l.id, l));
-                        remoteLogs.forEach(l => byId.set(l.id, l));
-                        const merged = Array.from(byId.values()).sort((a, b) => (b.started || 0) - (a.started || 0)).slice(0, 100);
-                        localStorage.setItem('premCallLogs', JSON.stringify(merged));
-                        if (typeof window.renderCallList === 'function') window.renderCallList();
-                    } catch (e) {}
-                }, err => console.warn('Call log listener error:', err));
+            window.callLogsUnsub = window.db.collection('call_logs').where('owner', '==', window.myNumber).onSnapshot(snapshot => {
+                try {
+                    const remoteLogs = snapshot.docs.map(doc => doc.data());
+                    const localLogs = JSON.parse(localStorage.getItem('premCallLogs')) || [];
+                    const byId = new Map();
+                    localLogs.forEach(l => byId.set(l.id, l));
+                    remoteLogs.forEach(l => byId.set(l.id, l));
+                    const merged = Array.from(byId.values()).sort((a, b) => (b.started || 0) - (a.started || 0)).slice(0, 100);
+                    localStorage.setItem('premCallLogs', JSON.stringify(merged));
+                    if (typeof window.renderCallList === 'function') window.renderCallList();
+                } catch (e) {}
+            }, err => console.warn('Call log listener error:', err));
         };
     }
 
@@ -1132,7 +990,7 @@
                 </div>
                 <div id="deleteError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:12px;padding:10px 12px;margin-bottom:12px;"></div>
                 <button id="deleteAccountConfirm" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;opacity:0.4;pointer-events:none;transition:opacity 0.2s;">Permanently delete</button>
-                <button id="deleteAccountCancel" style="width:100%;padding:11px;margin-top:8px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#7a89a8;font-size:0.85rem;cursor:pointer;font-family:inherit;">Cancel</button>
+                <button id="deleteAccountCancel" style="${BTN_SECONDARY}">Cancel</button>
             </div>`;
         document.body.appendChild(overlay);
 
@@ -1162,20 +1020,11 @@
 
             confirmBtn.disabled = true;
             confirmBtn.textContent = 'Deleting…';
-
             let serverRes;
             try {
                 serverRes = await postJson({ type: 'deleteAccount', secret: SHEET_WEBHOOK_SECRET, phone: phone, uid: uid });
-            } catch (e) {
-                confirmBtn.disabled = false;
-                confirmBtn.textContent = 'Permanently delete';
-                return showErr('Could not reach server.');
-            }
-            if (!serverRes || serverRes.ok !== true) {
-                confirmBtn.disabled = false;
-                confirmBtn.textContent = 'Permanently delete';
-                return showErr((serverRes && (serverRes.message || serverRes.error)) || 'Server rejected.');
-            }
+            } catch (e) { confirmBtn.disabled = false; confirmBtn.textContent = 'Permanently delete'; return showErr('Could not reach server.'); }
+            if (!serverRes || serverRes.ok !== true) { confirmBtn.disabled = false; confirmBtn.textContent = 'Permanently delete'; return showErr((serverRes && (serverRes.message || serverRes.error)) || 'Server rejected.'); }
 
             try { if (window.db && phone) await window.db.collection('profiles').doc(phone).delete(); } catch (e) {}
             try { if (window.auth && window.auth.currentUser) await window.auth.signOut(); } catch (e) {}
@@ -1195,11 +1044,9 @@
     // ────────────────────────────────────────────────────────────
     function showRecoveryModal(phone, method) {
         $('recoveryModal')?.remove();
-
         const overlay = document.createElement('div');
         overlay.id = 'recoveryModal';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:100200;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
-
         const isPassword = method === 'password';
 
         overlay.innerHTML = `
@@ -1213,15 +1060,11 @@
                             : "We'll resend your welcome email with your secret time offset."}
                     </div>
                 </div>
-
                 <div style="background:rgba(110,231,255,.06);border:1px solid rgba(110,231,255,.18);border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:0.78rem;color:#a5b3d0;line-height:1.5;">
                     <b style="color:#6ee7ff;">Sending to:</b> +91 ${escapeHtml(phone)}
                 </div>
-
                 ${isPassword ? `
-                    <div id="recoveryStep1">
-                        <button id="recoverySendCode" style="${BTN_PRIMARY}">Send reset code</button>
-                    </div>
+                    <div id="recoveryStep1"><button id="recoverySendCode" style="${BTN_PRIMARY}">Send reset code</button></div>
                     <div id="recoveryStep2" style="display:none;">
                         <div style="margin-bottom:12px;">
                             <label style="${LBL}">Reset code (6 digits)</label>
@@ -1232,15 +1075,11 @@
                             <input id="recoveryNewPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
                         </div>
                         <button id="recoverySubmit" style="${BTN_PRIMARY}">Set new password</button>
-                    </div>
-                ` : `
-                    <button id="recoveryResend" style="${BTN_PRIMARY}">Resend welcome email</button>
-                `}
-
+                    </div>` : `
+                    <button id="recoveryResend" style="${BTN_PRIMARY}">Resend welcome email</button>`}
                 <div id="recoveryStatus" style="display:none;font-size:0.78rem;color:#2fd992;background:rgba(47,217,146,.08);border:1px solid rgba(47,217,146,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
                 <div id="recoveryError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
-
-                <button id="recoveryClose" style="${BTN_SECONDARY}margin-top:14px;">Cancel</button>
+                <button id="recoveryClose" style="${BTN_SECONDARY}">Cancel</button>
             </div>`;
         document.body.appendChild(overlay);
 
@@ -1257,21 +1096,12 @@
             $('recoveryResend').addEventListener('click', async () => {
                 clearErr();
                 const btn = $('recoveryResend');
-                btn.disabled = true;
-                btn.textContent = 'Sending…';
+                btn.disabled = true; btn.textContent = 'Sending…';
                 try {
                     const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'resendWelcome', phone: phone });
-                    if (res && res.ok) {
-                        setStatus('✅ Email sent to ' + res.sentTo + '. Check your inbox and spam folder.');
-                        btn.textContent = 'Resend again';
-                    } else {
-                        showErr((res && res.message) || 'Could not resend.');
-                        btn.textContent = 'Resend welcome email';
-                    }
-                } catch (e) {
-                    showErr('Network error.');
-                    btn.textContent = 'Resend welcome email';
-                }
+                    if (res && res.ok) { setStatus('✅ Email sent to ' + res.sentTo + '. Check your inbox and spam folder.'); btn.textContent = 'Resend again'; }
+                    else { showErr((res && res.message) || 'Could not resend.'); btn.textContent = 'Resend welcome email'; }
+                } catch (e) { showErr('Network error.'); btn.textContent = 'Resend welcome email'; }
                 btn.disabled = false;
             });
         }
@@ -1280,8 +1110,7 @@
             $('recoverySendCode').addEventListener('click', async () => {
                 clearErr();
                 const btn = $('recoverySendCode');
-                btn.disabled = true;
-                btn.textContent = 'Sending…';
+                btn.disabled = true; btn.textContent = 'Sending…';
                 try {
                     const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'requestPasswordReset', phone: phone });
                     if (res && res.ok) {
@@ -1291,14 +1120,9 @@
                         setTimeout(() => $('recoveryCode').focus(), 100);
                     } else {
                         showErr((res && res.message) || 'Could not send reset code.');
-                        btn.disabled = false;
-                        btn.textContent = 'Send reset code';
+                        btn.disabled = false; btn.textContent = 'Send reset code';
                     }
-                } catch (e) {
-                    showErr('Network error.');
-                    btn.disabled = false;
-                    btn.textContent = 'Send reset code';
-                }
+                } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Send reset code'; }
             });
 
             $('recoverySubmit').addEventListener('click', async () => {
@@ -1309,15 +1133,11 @@
                 if (newPassword.length < 6) return showErr('Password must be at least 6 characters.');
 
                 const btn = $('recoverySubmit');
-                btn.disabled = true;
-                btn.textContent = 'Updating…';
+                btn.disabled = true; btn.textContent = 'Updating…';
                 try {
                     const res = await postJson({
-                        secret: SHEET_WEBHOOK_SECRET,
-                        type: 'resetPassword',
-                        phone: phone,
-                        code: code,
-                        newPassword: newPassword
+                        secret: SHEET_WEBHOOK_SECRET, type: 'resetPassword',
+                        phone: phone, code: code, newPassword: newPassword
                     });
                     if (res && res.ok) {
                         setStatus('✅ Password updated. You can now sign in.');
@@ -1327,14 +1147,9 @@
                         }, 1500);
                     } else {
                         showErr((res && res.message) || 'Could not reset password.');
-                        btn.disabled = false;
-                        btn.textContent = 'Set new password';
+                        btn.disabled = false; btn.textContent = 'Set new password';
                     }
-                } catch (e) {
-                    showErr('Network error.');
-                    btn.disabled = false;
-                    btn.textContent = 'Set new password';
-                }
+                } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Set new password'; }
             });
         }
 
@@ -1407,33 +1222,15 @@
                 <div>
                     <label style="${LBL}">Email</label>
                     <input id="bootRegEmail" type="email" placeholder="you@example.com" style="${INP}" />
-                    <div style="font-size:0.72rem;color:#5a6885;margin-top:4px;">
-                        We'll send your welcome email and secret code here.
-                    </div>
                 </div>
             </div>
 
-            <div style="margin-top:18px;">
-                <label style="${LBL}">Choose your sign-in method</label>
-                <div style="display:flex;gap:10px;margin-top:4px;">
-                    <label id="authOptTotp" style="flex:1;padding:14px 12px;border-radius:14px;border:1.5px solid rgba(139,92,246,0.5);background:rgba(139,92,246,0.12);cursor:pointer;text-align:center;transition:all 0.15s;">
-                        <input type="radio" name="bootRegAuthMethod" value="totp" checked style="display:none;" />
-                        <div style="font-size:1.3rem;">🕐</div>
-                        <div style="font-size:0.85rem;font-weight:600;color:#a78bfa;margin-top:4px;">Time code</div>
-                        <div style="font-size:0.68rem;color:#7a89a8;margin-top:2px;line-height:1.3;">Emailed secret. Changes every minute.</div>
-                    </label>
-                    <label id="authOptPassword" style="flex:1;padding:14px 12px;border-radius:14px;border:1.5px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);cursor:pointer;text-align:center;transition:all 0.15s;">
-                        <input type="radio" name="bootRegAuthMethod" value="password" style="display:none;" />
-                        <div style="font-size:1.3rem;">🔑</div>
-                        <div style="font-size:0.85rem;font-weight:600;color:#a5b3d0;margin-top:4px;">Password</div>
-                        <div style="font-size:0.68rem;color:#7a89a8;margin-top:2px;line-height:1.3;">Simple. You choose it.</div>
-                    </label>
-                </div>
-            </div>
-
-            <div id="bootRegPasswordWrap" style="display:none;margin-top:14px;">
-                <label style="${LBL}">Password</label>
+            <div id="bootRegPasswordWrap" style="margin-top:14px;">
+                <label style="${LBL}">Password <span style="text-transform:none;color:#5a6885;font-weight:400;">(optional)</span></label>
                 <input id="bootRegPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
+                <div style="font-size:0.72rem;color:#5a6885;margin-top:6px;line-height:1.5;">
+                    You'll also receive a time-based code by email. Set a password if you'd like an alternative way to sign in.
+                </div>
             </div>
 
             <div id="bootRegError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:12px;padding:10px 12px;margin-top:14px;"></div>
@@ -1447,52 +1244,13 @@
         screen.appendChild(card);
         document.body.appendChild(screen);
 
-        // Auth method toggle
-        (function wireAuthMethod() {
-            const totpOpt = $('authOptTotp');
-            const pwOpt = $('authOptPassword');
-            const pwWrap = $('bootRegPasswordWrap');
-            const radios = document.querySelectorAll('input[name="bootRegAuthMethod"]');
-
-            function update() {
-                const method = document.querySelector('input[name="bootRegAuthMethod"]:checked').value;
-                if (method === 'totp') {
-                    totpOpt.style.borderColor = 'rgba(139,92,246,0.5)';
-                    totpOpt.style.background = 'rgba(139,92,246,0.12)';
-                    totpOpt.querySelector('div:nth-child(3)').style.color = '#a78bfa';
-                    pwOpt.style.borderColor = 'rgba(255,255,255,0.08)';
-                    pwOpt.style.background = 'rgba(255,255,255,0.03)';
-                    pwOpt.querySelector('div:nth-child(3)').style.color = '#a5b3d0';
-                    pwWrap.style.display = 'none';
-                } else {
-                    pwOpt.style.borderColor = 'rgba(139,92,246,0.5)';
-                    pwOpt.style.background = 'rgba(139,92,246,0.12)';
-                    pwOpt.querySelector('div:nth-child(3)').style.color = '#a78bfa';
-                    totpOpt.style.borderColor = 'rgba(255,255,255,0.08)';
-                    totpOpt.style.background = 'rgba(255,255,255,0.03)';
-                    totpOpt.querySelector('div:nth-child(3)').style.color = '#a5b3d0';
-                    pwWrap.style.display = 'block';
-                }
-            }
-            radios.forEach(r => r.addEventListener('change', update));
-            totpOpt.addEventListener('click', () => { radios[0].checked = true; update(); });
-            pwOpt.addEventListener('click', () => { radios[1].checked = true; update(); });
-            update();
-        })();
-
         // Google button
         $('bootRegGoogleBtn').addEventListener('click', async () => {
             const btn = $('bootRegGoogleBtn');
-            btn.disabled = true;
-            btn.style.opacity = '0.7';
+            btn.disabled = true; btn.style.opacity = '0.7';
             btn.innerHTML = '<span style="color:#666;">Opening Google…</span>';
             const user = await signInWithGoogle();
-            if (!user) {
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.innerHTML = 'Continue with Google';
-                return;
-            }
+            if (!user) { btn.disabled = false; btn.style.opacity = '1'; btn.innerHTML = 'Continue with Google'; return; }
             await startGoogleRegistrationFlow(user);
         });
 
@@ -1536,15 +1294,14 @@
             const userid = $('bootRegUserid').value.trim();
             const phone = $('bootRegPhone').value.trim();
             const email = $('bootRegEmail').value.trim();
-            const authMethod = document.querySelector('input[name="bootRegAuthMethod"]:checked').value;
-            const password = authMethod === 'password' ? $('bootRegPassword').value : '';
+            const password = $('bootRegPassword').value.trim();
 
             if (!name) return showErr('Please enter your name');
             if (!userid) return showErr('Please choose a username');
             if (!USERNAME_RE.test(userid)) return showErr('Username: 3–20 letters, numbers, _ or .');
             if (!PHONE_RE.test(phone)) return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
             if (!EMAIL_RE.test(email)) return showErr('Please enter a valid email');
-            if (authMethod === 'password' && password.length < 6) return showErr('Password must be at least 6 characters.');
+            if (password && password.length < 6) return showErr('Password must be at least 6 characters.');
 
             submitBtn.disabled = true;
             submitBtn.style.opacity = '0.7';
@@ -1558,39 +1315,25 @@
             submitBtn.textContent = 'Creating…';
 
             const payload = {
-                authMethod: authMethod,
-                name: name,
-                username: userid,
-                phone: phone,
-                email: email
+                authMethod: password ? 'both' : 'totp',
+                name: name, username: userid, phone: phone, email: email
             };
-            if (authMethod === 'password') payload.password = password;
+            if (password) payload.password = password;
 
             let regRes;
             try {
                 regRes = await postJson({
-                    secret: SHEET_WEBHOOK_SECRET,
-                    type: 'registration',
-                    provider: 'otp',
-                    ...payload,
-                    uid: getAuthUid() || ''
+                    secret: SHEET_WEBHOOK_SECRET, type: 'registration', provider: 'otp',
+                    ...payload, uid: getAuthUid() || ''
                 });
-            } catch (e) {
-                return fail('Network error. Please try again.');
-            }
+            } catch (e) { return fail('Network error. Please try again.'); }
             if (regRes && regRes.ok === false) return fail(regRes.message || regRes.error || 'Registration failed');
 
-            const userData = { name, userid, phone, email, registered: true, status: 'online', provider: authMethod };
+            const userData = { name, userid, phone, email, registered: true, status: 'online', provider: password ? 'both' : 'totp' };
             activateApp(userData);
-
             screen.remove();
             toast('✅ Welcome to Sandesai, ' + name + '!');
-
-            if (authMethod === 'totp') {
-                setTimeout(() => {
-                    toast('📧 Check your email for your secret time offset');
-                }, 1200);
-            }
+            setTimeout(() => toast('📧 Check your email for your welcome message'), 1200);
         });
 
         setTimeout(() => $('bootRegName')?.focus(), 400);
@@ -1621,17 +1364,20 @@
                 </div>
 
                 <div id="loginStep2" style="display:none;margin-top:14px;">
-                    <div id="loginMethodLabel" style="font-size:0.78rem;color:#a5b3d0;margin-bottom:10px;"></div>
+                    <div id="loginMethodLabel" style="font-size:0.78rem;color:#a5b3d0;margin-bottom:12px;"></div>
+                    <div id="loginMethodToggle" style="display:none;gap:8px;margin-bottom:14px;"></div>
+
                     <div id="loginTotpBlock" style="display:none;">
-                        <label style="${LBL}">Enter today's code (HHMM)</label>
-                        <input id="loginTotpCode" type="text" placeholder="0114" maxlength="4" inputmode="numeric" style="${INP}letter-spacing:6px;text-align:center;font-family:'SF Mono',Menlo,monospace;font-size:1.4rem;" />
-                        <div style="font-size:0.72rem;color:#5a6885;margin-top:8px;line-height:1.5;">
-                            Check your welcome email for your secret time offset.
-                        </div>
+                        <label style="${LBL}">
+                            Enter your code
+                            <button id="loginInfoBtn" type="button" style="display:none;vertical-align:middle;margin-left:6px;width:18px;height:18px;border-radius:50%;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.12);color:#a78bfa;font-size:11px;font-weight:700;cursor:pointer;font-family:serif;line-height:1;padding:0;align-items:center;justify-content:center;">i</button>
+                        </label>
+                        <input id="loginTotpCode" type="text" placeholder="0000" maxlength="4" inputmode="numeric" style="${INP}letter-spacing:6px;text-align:center;font-family:'SF Mono',Menlo,monospace;font-size:1.4rem;" />
                         <div style="text-align:right;margin-top:6px;">
                             <button id="loginForgotCode" type="button" style="background:none;border:none;color:#a78bfa;font-size:0.75rem;cursor:pointer;font-family:inherit;text-decoration:underline;padding:4px 0;">Forgot your code? Resend welcome email</button>
                         </div>
                     </div>
+
                     <div id="loginPasswordBlock" style="display:none;">
                         <label style="${LBL}">Password</label>
                         <input id="loginPassword" type="password" placeholder="Your password" autocomplete="current-password" style="${INP}" />
@@ -1653,12 +1399,31 @@
         const errBox = $('loginError');
         const step2 = $('loginStep2');
         const methodLabel = $('loginMethodLabel');
+        const toggleRow = $('loginMethodToggle');
         const totpBlock = $('loginTotpBlock');
         const pwBlock = $('loginPasswordBlock');
-        let currentMethod = null;
+
+        let userMethods = [];
+        let userHint = '';
+        let activeMethod = null;
 
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
         const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
+
+        function updateLoginFields() {
+            totpBlock.style.display = activeMethod === 'totp' ? 'block' : 'none';
+            pwBlock.style.display = activeMethod === 'password' ? 'block' : 'none';
+            if (activeMethod === 'totp') {
+                const infoBtn = $('loginInfoBtn');
+                if (infoBtn) {
+                    infoBtn.style.display = userHint ? 'inline-flex' : 'none';
+                    infoBtn.onclick = (e) => { e.preventDefault(); if (userHint) toast('ℹ️ ' + userHint); };
+                }
+                setTimeout(() => $('loginTotpCode')?.focus(), 100);
+            } else {
+                setTimeout(() => $('loginPassword')?.focus(), 100);
+            }
+        }
 
         $('loginSwitch').addEventListener('click', () => {
             screen.remove();
@@ -1668,7 +1433,8 @@
         submitBtn.addEventListener('click', async () => {
             clearErr();
 
-            if (!currentMethod) {
+            if (!userMethods.length) {
+                // STEP 1: lookup
                 const phone = phoneInput.value.trim();
                 if (!PHONE_RE.test(phone)) return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
                 submitBtn.disabled = true;
@@ -1678,27 +1444,42 @@
                 try {
                     res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'checkLogin', phone: phone });
                 } catch (e) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Continue';
+                    submitBtn.disabled = false; submitBtn.textContent = 'Continue';
                     return showErr('Network error.');
                 }
                 if (!res || !res.ok) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Continue';
+                    submitBtn.disabled = false; submitBtn.textContent = 'Continue';
                     return showErr((res && res.message) || 'Could not find this number.');
                 }
 
-                currentMethod = res.authMethod || 'totp';
-                methodLabel.textContent = 'Hi ' + (res.name || 'there') + '! Sign in with ' + (currentMethod === 'totp' ? 'your time code' : 'your password');
-                if (currentMethod === 'totp') {
-                    totpBlock.style.display = 'block';
-                    pwBlock.style.display = 'none';
-                    setTimeout(() => $('loginTotpCode').focus(), 100);
+                userMethods = res.methods || ['totp'];
+                userHint = res.hint || '';
+                methodLabel.textContent = 'Hi ' + (res.name || 'there') + '! Choose how to sign in.';
+                activeMethod = userMethods[0];
+
+                const showToggle = userMethods.indexOf('totp') !== -1 && userMethods.indexOf('password') !== -1;
+                if (showToggle) {
+                    toggleRow.style.display = 'flex';
+                    toggleRow.innerHTML = userMethods.map(m =>
+                        `<button data-method="${m}" type="button" style="flex:1;padding:10px;border-radius:12px;border:1.5px solid ${m === activeMethod ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.08)'};background:${m === activeMethod ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)'};color:${m === activeMethod ? '#a78bfa' : '#a5b3d0'};font-weight:600;font-size:0.85rem;cursor:pointer;font-family:inherit;">${m === 'totp' ? '🕐 Time code' : '🔑 Password'}</button>`
+                    ).join('');
+                    toggleRow.querySelectorAll('button').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            activeMethod = btn.dataset.method;
+                            toggleRow.querySelectorAll('button').forEach(b => {
+                                const active = b.dataset.method === activeMethod;
+                                b.style.borderColor = active ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.08)';
+                                b.style.background = active ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)';
+                                b.style.color = active ? '#a78bfa' : '#a5b3d0';
+                            });
+                            updateLoginFields();
+                        });
+                    });
                 } else {
-                    totpBlock.style.display = 'none';
-                    pwBlock.style.display = 'block';
-                    setTimeout(() => $('loginPassword').focus(), 100);
+                    toggleRow.style.display = 'none';
                 }
+
+                updateLoginFields();
                 step2.style.display = 'block';
                 phoneInput.disabled = true;
                 submitBtn.disabled = false;
@@ -1706,24 +1487,23 @@
                 return;
             }
 
+            // STEP 2: verify
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying…';
             const phone = phoneInput.value.trim();
-            const payload = { secret: SHEET_WEBHOOK_SECRET, type: 'login', phone: phone, method: currentMethod };
+            const payload = { secret: SHEET_WEBHOOK_SECRET, type: 'login', phone: phone, method: activeMethod };
 
-            if (currentMethod === 'totp') {
+            if (activeMethod === 'totp') {
                 const code = $('loginTotpCode').value.trim();
                 if (!/^\d{4}$/.test(code)) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Sign in';
+                    submitBtn.disabled = false; submitBtn.textContent = 'Sign in';
                     return showErr('Code must be 4 digits.');
                 }
                 payload.code = code;
             } else {
                 const pw = $('loginPassword').value;
                 if (!pw) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Sign in';
+                    submitBtn.disabled = false; submitBtn.textContent = 'Sign in';
                     return showErr('Enter your password.');
                 }
                 payload.password = pw;
@@ -1732,30 +1512,27 @@
             let res;
             try { res = await postJson(payload); }
             catch (e) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Sign in';
+                submitBtn.disabled = false; submitBtn.textContent = 'Sign in';
                 return showErr('Network error.');
             }
             if (!res || !res.ok) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Sign in';
-                if (res && res.error === 'wrong_code') return showErr('Wrong code. Check your device time and offset.');
+                submitBtn.disabled = false; submitBtn.textContent = 'Sign in';
+                if (res && res.error === 'wrong_code') return showErr('Wrong code.');
                 if (res && res.error === 'wrong_password') return showErr('Wrong password. Try again.');
                 return showErr((res && res.message) || 'Sign in failed.');
             }
 
             const u = res.user || {};
-            const userData = { name: u.name, userid: u.username, phone: u.phone, email: u.email, registered: true, status: 'online', provider: currentMethod };
+            const userData = { name: u.name, userid: u.username, phone: u.phone, email: u.email, registered: true, status: 'online', provider: activeMethod };
             activateApp(userData);
             screen.remove();
             toast('👋 Welcome back, ' + (u.name || 'friend') + '!');
         });
 
-        phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !currentMethod) submitBtn.click(); });
+        phoneInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !userMethods.length) submitBtn.click(); });
         $('loginTotpCode')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitBtn.click(); });
         $('loginPassword')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitBtn.click(); });
 
-        // Recovery buttons — bound after DOM settles
         setTimeout(() => {
             $('loginForgotCode')?.addEventListener('click', () => {
                 const phone = phoneInput.value.trim();
@@ -1800,7 +1577,6 @@
     // 22. BOOT
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
-        // Google redirect check FIRST
         if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
             try {
                 const authInstance = window.firebase.auth();
@@ -1846,5 +1622,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v17 loaded — TOTP + password + recovery + Google');
+    console.log('✨ enhancements.js v18 loaded — optional password, method toggle, cryptic hint');
 })();
