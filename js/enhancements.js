@@ -1,5 +1,14 @@
 // ================================================================
-// js/enhancements.js  (v22 – Mobile Google Sign-In fix)
+// js/enhancements.js  (v24 – Popup-only Google Sign-In)
+//
+// Fix: GitHub Pages + Firebase authDomain = storage partitioning on
+// Chrome Android, which silently empties getRedirectResult().
+// Redirect sign-in CANNOT work on this hosting setup. Popup works
+// everywhere (desktop + Chrome Android) because it doesn't depend on
+// cross-domain storage.
+//
+// Also adds an in-app browser guard — Google blocks OAuth inside
+// Instagram/WhatsApp/Facebook in-app browsers.
 // ================================================================
 (function () {
     'use strict';
@@ -15,7 +24,7 @@
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '1.2';
+    const LOCAL_APP_VERSION = '1.4';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -318,26 +327,43 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 3b. GOOGLE
+    // 3b. GOOGLE — POPUP ONLY
+    //
+    // Redirect sign-in CANNOT work on this hosting setup:
+    //   • App runs on suryasticsai.github.io
+    //   • Firebase authDomain is premcall-msg.firebaseapp.com
+    // Chrome Android partitions storage between these origins, so the
+    // redirect result never reaches our page. Popup doesn't use that
+    // cross-origin storage, so it works everywhere.
     // ────────────────────────────────────────────────────────────
-    function isMobileUA() { return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
+    function isInAppBrowser() {
+        return /FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat|; wv\)/i.test(navigator.userAgent);
+    }
 
     async function signInWithGoogle() {
+        if (isInAppBrowser()) {
+            toast('⚠️ Google blocks sign-in inside this app. Open the link in Chrome.');
+            return null;
+        }
         const auth = getAuthInstance();
         if (!auth) { toast('⚠️ Auth not ready. Refresh.'); return null; }
         const provider = new firebase.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
         try {
-            if (isMobileUA()) { await auth.signInWithRedirect(provider); return null; }
+            // Popup on all devices. Must be called straight from the tap
+            // (no awaits before it — browsers only allow popups within a
+            // short window after the user gesture).
             const result = await auth.signInWithPopup(provider);
             return result.user || null;
         } catch (e) {
-            if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment')) {
-                await auth.signInWithRedirect(provider); return null;
+            const c = e && e.code;
+            if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return null;
+            if (c === 'auth/popup-blocked') {
+                toast('⚠️ Popup blocked. Allow popups for this site and tap again.');
+                return null;
             }
-            if (e && (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request')) return null;
             console.error('Google sign-in failed:', e);
-            toast('⚠️ Google sign-in failed');
+            toast('⚠️ Google sign-in failed (' + (c || 'unknown') + ')');
             return null;
         }
     }
@@ -2084,33 +2110,39 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 27. BOOT — MOBILE GOOGLE SIGN-IN FIX
+    // 27. BOOT
+    //
+    // We still manually initialize Firebase first (harmless — avoids
+    // any race in startMessaging) and still read the redirect result
+    // once at boot (harmless no-op now that we use popup only).
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
-        // 1) Ensure Firebase is initialized BEFORE checking for a redirect
-        //    result. Without this, firebase.auth() throws on mobile
-        //    (no-app error), the redirect result is silently skipped, and
-        //    the user lands back on the signup screen.
+        // Manually initialize Firebase WITHOUT calling startMessaging.
         if (typeof firebase !== 'undefined' && (!firebase.apps || firebase.apps.length === 0)) {
-            if (typeof window.initFirebaseMessaging === 'function') {
-                try { window.initFirebaseMessaging(); } catch (e) {}
-            }
+            try {
+                firebase.initializeApp({
+                    apiKey: "AIzaSyDc2vue40jIyuVCnU-frnbC5o0aNzovUNk",
+                    authDomain: "premcall-msg.firebaseapp.com",
+                    projectId: "premcall-msg",
+                    storageBucket: "premcall-msg.firebasestorage.app",
+                    messagingSenderId: "50980568455",
+                    appId: "1:50980568455:web:723fb612e7df28169d6722"
+                });
+            } catch (e) {}
         }
 
-        // 2) Now read the redirect result — safe because Firebase is initialized.
+        // Optional: read any stale redirect result (harmless no-op on popup-only).
         if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
             try {
                 const authInstance = window.firebase.auth();
                 window.auth = authInstance;
                 const result = await authInstance.getRedirectResult();
                 if (result && result.user) {
-                    console.log('🔵 Google redirect caught:', result.user.email);
+                    console.log('🔵 Stale Google redirect caught:', result.user.email);
                     setTimeout(() => startGoogleRegistrationFlow(result.user), 400);
                     return;
                 }
-            } catch (e) {
-                console.warn('getRedirectResult failed:', e);
-            }
+            } catch (e) {}
         }
 
         ensureWindowAuth();
@@ -2145,5 +2177,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v22 loaded — mobile Google Sign-In fixed');
+    console.log('✨ enhancements.js v24 loaded — popup-only Google Sign-In');
 })();
