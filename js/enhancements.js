@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v19 – TOTP lock, unlock, disable, logout-all)
+// js/enhancements.js  (v20 – Registration OTP flow)
 // ================================================================
 (function () {
     'use strict';
@@ -8,13 +8,14 @@
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
     const CFG = window.SANDESAI || {};
-    const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL;
-    const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET;
+    const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL ||
+        'https://script.google.com/macros/s/AKfycbyRAbk9piL2uCLsQ67S1F3CA5qobAJzfYVSh9hXI_k6VJhjE2Ihy2--qS0h8tGQYZ8U/exec';
+    const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
 
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '0.9';
+    const LOCAL_APP_VERSION = '1.0';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -65,7 +66,7 @@
             });
             const text = await r.text();
             try { return JSON.parse(text); }
-            catch (e) { throw new Error('Backend returned non-JSON (redeploy?)'); }
+            catch (e) { throw new Error('Backend returned non-JSON'); }
         } finally { clearTimeout(timer); }
     }
 
@@ -843,7 +844,6 @@
                     <div style="font-size:1.05rem;font-weight:700;">Your live token</div>
                     <div style="font-size:0.78rem;color:#7a89a8;margin-top:4px;">Refreshes every minute</div>
                 </div>
-
                 <div style="background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.32);border-radius:20px;padding:22px 18px;text-align:center;margin-bottom:16px;">
                     <div id="liveCodeValue" style="display:inline-block;font-size:52px;font-weight:800;letter-spacing:14px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 28px rgba(139,92,246,.7);padding-left:14px;">••••</div>
                     <div style="margin-top:14px;">
@@ -853,9 +853,7 @@
                         <div id="liveCodeTimer" style="font-size:0.72rem;color:#7a89a8;margin-top:8px;">— s</div>
                     </div>
                 </div>
-
                 <div id="liveHintBox" style="font-size:0.82rem;color:#c4b5fd;background:rgba(139,92,246,.10);border:1px solid rgba(139,92,246,.25);border-radius:12px;padding:12px 14px;line-height:1.5;margin-bottom:16px;text-align:center;">—</div>
-
                 <button id="liveChangeOffset" style="${BTN_PRIMARY}">Change my offset</button>
                 <button id="liveDisableTotp" style="width:100%;padding:12px;margin-top:10px;border-radius:14px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.08);color:#ef4444;font-weight:600;font-size:0.85rem;cursor:pointer;font-family:inherit;">Turn off time code</button>
                 <button id="liveClose" style="${BTN_SECONDARY}">Close</button>
@@ -876,10 +874,6 @@
                 if (!res || !res.ok) {
                     codeEl.textContent = '••••';
                     hintEl.textContent = (res && res.message) || 'Could not load token.';
-                    if (res && res.error === 'totp_disabled') {
-                        // Hide the code card, show message
-                        $('liveDisableTotp').style.display = 'none';
-                    }
                     return;
                 }
                 codeEl.textContent = res.code;
@@ -999,7 +993,7 @@
                     btn.disabled = false; btn.textContent = 'Save new offset';
                     return;
                 }
-                toast('✅ Offset updated. Your next code will use it.');
+                toast('✅ Offset updated.');
                 overlay.remove();
             } catch (e) {
                 showErr('Network error.');
@@ -1012,11 +1006,10 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 16. DISABLE TOTP DIALOG
+    // 16. DISABLE TOTP
     // ────────────────────────────────────────────────────────────
     function showDisableTotpDialog(phone) {
         $('disableTotpModal')?.remove();
-
         const overlay = document.createElement('div');
         overlay.id = 'disableTotpModal';
         overlay.style.cssText = 'position:fixed;inset:0;z-index:100500;background:rgba(8,6,20,0.96);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;padding:24px;font-family:Inter,sans-serif;color:#eef0f5;';
@@ -1025,31 +1018,23 @@
                 <div style="text-align:center;margin-bottom:18px;">
                     <div style="font-size:2.2rem;margin-bottom:8px;">⚠️</div>
                     <div style="font-size:1.05rem;font-weight:700;color:#ef4444;">Turn off time code?</div>
-                    <div style="font-size:0.82rem;color:#a5b3d0;margin-top:8px;line-height:1.55;">
-                        After this, you'll sign in using only your password. Your live token will stop working.
-                    </div>
+                    <div style="font-size:0.82rem;color:#a5b3d0;margin-top:8px;line-height:1.55;">After this, you'll sign in using only your password.</div>
                 </div>
-
                 <div id="dtNoPassword" style="display:none;">
-                    <div style="font-size:0.8rem;color:#f59e0b;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px;margin-bottom:14px;line-height:1.5;">
-                        You don't have a password yet. Set one to turn off your time code.
-                    </div>
+                    <div style="font-size:0.8rem;color:#f59e0b;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:12px;padding:12px;margin-bottom:14px;line-height:1.5;">You don't have a password yet. Set one to turn off your time code.</div>
                     <div style="margin-bottom:12px;">
                         <label style="${LBL}">New password</label>
                         <input id="dtNewPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
                     </div>
                 </div>
-
                 <div id="dtHasPassword">
                     <div style="margin-bottom:14px;">
                         <label style="${LBL}">Confirm with your password</label>
                         <input id="dtPassword" type="password" placeholder="Your password" autocomplete="current-password" style="${INP}" />
                     </div>
                 </div>
-
                 <div id="dtError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-bottom:12px;"></div>
-
-                <button id="dtConfirm" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;box-shadow:0 8px 24px rgba(239,68,68,.35);">Turn off time code</button>
+                <button id="dtConfirm" style="width:100%;padding:14px;border-radius:14px;border:none;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;">Turn off time code</button>
                 <button id="dtCancel" style="${BTN_SECONDARY}">Cancel</button>
             </div>`;
         document.body.appendChild(overlay);
@@ -1058,7 +1043,6 @@
         const showErr = (m) => { errBox.style.display = 'block'; errBox.textContent = m; };
         const clearErr = () => { errBox.style.display = 'none'; errBox.textContent = ''; };
 
-        // Determine whether the user has a password by calling checkLogin
         (async () => {
             try {
                 const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'checkLogin', phone: phone });
@@ -1071,9 +1055,7 @@
                     $('dtNoPassword').style.display = 'block';
                     setTimeout(() => $('dtNewPassword')?.focus(), 100);
                 }
-            } catch (e) {
-                $('dtHasPassword').style.display = 'block';
-            }
+            } catch (e) { $('dtHasPassword').style.display = 'block'; }
         })();
 
         $('dtCancel').addEventListener('click', () => overlay.remove());
@@ -1084,10 +1066,7 @@
             const btn = $('dtConfirm');
             btn.disabled = true; btn.textContent = 'Disabling…';
 
-            const payload = {
-                secret: SHEET_WEBHOOK_SECRET, type: 'disableTotp',
-                phone: phone, token: getDeviceToken()
-            };
+            const payload = { secret: SHEET_WEBHOOK_SECRET, type: 'disableTotp', phone: phone, token: getDeviceToken() };
             const hasPwEl = $('dtPassword');
             const newPwEl = $('dtNewPassword');
             if (hasPwEl && hasPwEl.offsetParent !== null) payload.password = hasPwEl.value;
@@ -1110,14 +1089,12 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 17. LOGOUT ALL DEVICES
+    // 17. LOGOUT ALL
     // ────────────────────────────────────────────────────────────
     async function confirmLogoutAllDevices() {
         const phone = localStorage.getItem('premCallNumber');
         if (!phone) return;
-
         if (!confirm('Log out of every device (including this one)?\n\nYou will need to sign in again.')) return;
-
         try {
             const res = await postJson({
                 secret: SHEET_WEBHOOK_SECRET, type: 'logoutAllDevices',
@@ -1130,9 +1107,7 @@
             } else {
                 toast('⚠️ ' + ((res && res.message) || 'Could not log out.'));
             }
-        } catch (e) {
-            toast('Network error.');
-        }
+        } catch (e) { toast('Network error.'); }
     }
 
     window.showLiveTokenCard = showLiveTokenCard;
@@ -1168,32 +1143,17 @@
         addSettingRow(section, logoutBtn, `<span><i class="fas fa-sync-alt"></i> Refresh connection</span><button class="reg-btn" id="refreshConnectionBtn"><i class="fas fa-rotate-right"></i></button>`, 'refreshConnectionBtn')
             ?.querySelector('#refreshConnectionBtn').addEventListener('click', window.refreshConnection);
 
-        // Live token
-        addSettingRow(section, logoutBtn, `
-            <span><i class="fas fa-key"></i> My live token</span>
-            <button class="reg-btn" id="liveTokenBtn" title="Show my current code">
-                <i class="fas fa-eye"></i>
-            </button>`, 'liveTokenBtn')
+        addSettingRow(section, logoutBtn, `<span><i class="fas fa-key"></i> My live token</span><button class="reg-btn" id="liveTokenBtn"><i class="fas fa-eye"></i></button>`, 'liveTokenBtn')
             ?.querySelector('#liveTokenBtn').addEventListener('click', showLiveTokenCard);
 
-        // Change offset
-        addSettingRow(section, logoutBtn, `
-            <span><i class="fas fa-sliders"></i> Change my offset</span>
-            <button class="reg-btn" id="changeOffsetBtn" title="Adjust your secret offset">
-                <i class="fas fa-pen"></i>
-            </button>`, 'changeOffsetBtn')
+        addSettingRow(section, logoutBtn, `<span><i class="fas fa-sliders"></i> Change my offset</span><button class="reg-btn" id="changeOffsetBtn"><i class="fas fa-pen"></i></button>`, 'changeOffsetBtn')
             ?.querySelector('#changeOffsetBtn').addEventListener('click', () => {
                 const phone = localStorage.getItem('premCallNumber');
                 if (!phone) return toast('Sign in first');
                 showChangeOffsetDialog(phone);
             });
 
-        // Log out all devices
-        addSettingRow(section, logoutBtn, `
-            <span><i class="fas fa-right-from-bracket"></i> Log out all devices</span>
-            <button class="reg-btn" id="logoutAllBtn" title="Sign out everywhere">
-                <i class="fas fa-power-off"></i>
-            </button>`, 'logoutAllBtn')
+        addSettingRow(section, logoutBtn, `<span><i class="fas fa-right-from-bracket"></i> Log out all devices</span><button class="reg-btn" id="logoutAllBtn"><i class="fas fa-power-off"></i></button>`, 'logoutAllBtn')
             ?.querySelector('#logoutAllBtn').addEventListener('click', confirmLogoutAllDevices);
 
         const getConsent = () => (window.RaginaMemory && window.RaginaMemory.getConsent()) || {};
@@ -1270,7 +1230,7 @@
     }
 
     // ────────────────────────────────────────────────────────────
-    // 20. AUTO-LOAD raginaMemory.js
+    // 20. AUTO-LOAD raginaMemory
     // ────────────────────────────────────────────────────────────
     (function loadRaginaMemory() {
         if (document.querySelector('script[src*="raginaMemory.js"]')) return;
@@ -1347,9 +1307,7 @@
             const errEl = $('deleteError');
             const showErr = (m) => { errEl.style.display = 'block'; errEl.textContent = m; };
             errEl.style.display = 'none';
-            const uid = getAuthUid();
-            if (!uid) { showErr('Cannot verify device. Refresh and try again.'); return; }
-
+            const uid = getAuthUid() || '';
             confirmBtn.disabled = true;
             confirmBtn.textContent = 'Deleting…';
             let serverRes;
@@ -1386,11 +1344,6 @@
                 <div style="text-align:center;margin-bottom:20px;">
                     <div style="font-size:2.2rem;margin-bottom:8px;">${isPassword ? '🔑' : '🕐'}</div>
                     <div style="font-size:1.15rem;font-weight:700;">${isPassword ? 'Reset password' : 'Recover your code'}</div>
-                    <div style="font-size:0.83rem;color:#7a89a8;margin-top:6px;line-height:1.5;">
-                        ${isPassword
-                            ? "We'll email a 6-digit reset code to your registered address."
-                            : "We'll resend your welcome email with your secret time offset."}
-                    </div>
                 </div>
                 <div style="background:rgba(110,231,255,.06);border:1px solid rgba(110,231,255,.18);border-radius:12px;padding:12px 14px;margin-bottom:16px;font-size:0.78rem;color:#a5b3d0;line-height:1.5;">
                     <b style="color:#6ee7ff;">Sending to:</b> +91 ${escapeHtml(phone)}
@@ -1400,11 +1353,11 @@
                     <div id="recoveryStep2" style="display:none;">
                         <div style="margin-bottom:12px;">
                             <label style="${LBL}">Reset code (6 digits)</label>
-                            <input id="recoveryCode" type="text" maxlength="6" inputmode="numeric" placeholder="123456" style="${INP}letter-spacing:6px;text-align:center;font-family:monospace;" />
+                            <input id="recoveryCode" type="text" maxlength="6" inputmode="numeric" style="${INP}letter-spacing:6px;text-align:center;font-family:monospace;" />
                         </div>
                         <div style="margin-bottom:14px;">
                             <label style="${LBL}">New password</label>
-                            <input id="recoveryNewPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
+                            <input id="recoveryNewPassword" type="password" placeholder="At least 6 characters" style="${INP}" />
                         </div>
                         <button id="recoverySubmit" style="${BTN_PRIMARY}">Set new password</button>
                     </div>` : `
@@ -1431,13 +1384,12 @@
                 btn.disabled = true; btn.textContent = 'Sending…';
                 try {
                     const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'resendWelcome', phone: phone });
-                    if (res && res.ok) { setStatus('✅ Email sent to ' + res.sentTo + '. Check your inbox and spam folder.'); btn.textContent = 'Resend again'; }
+                    if (res && res.ok) { setStatus('✅ Email sent to ' + res.sentTo); btn.textContent = 'Resend again'; }
                     else { showErr((res && res.message) || 'Could not resend.'); btn.textContent = 'Resend welcome email'; }
                 } catch (e) { showErr('Network error.'); btn.textContent = 'Resend welcome email'; }
                 btn.disabled = false;
             });
         }
-
         if (isPassword) {
             $('recoverySendCode').addEventListener('click', async () => {
                 clearErr();
@@ -1446,24 +1398,22 @@
                 try {
                     const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'requestPasswordReset', phone: phone });
                     if (res && res.ok) {
-                        setStatus('✅ Reset code sent to ' + res.sentTo + '. Check your inbox.');
+                        setStatus('✅ Code sent to ' + res.sentTo);
                         $('recoveryStep1').style.display = 'none';
                         $('recoveryStep2').style.display = 'block';
                         setTimeout(() => $('recoveryCode').focus(), 100);
                     } else {
-                        showErr((res && res.message) || 'Could not send reset code.');
+                        showErr((res && res.message) || 'Could not send.');
                         btn.disabled = false; btn.textContent = 'Send reset code';
                     }
                 } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Send reset code'; }
             });
-
             $('recoverySubmit').addEventListener('click', async () => {
                 clearErr();
                 const code = $('recoveryCode').value.trim();
                 const newPassword = $('recoveryNewPassword').value;
                 if (!/^\d{6}$/.test(code)) return showErr('Enter the 6-digit code.');
                 if (newPassword.length < 6) return showErr('Password must be at least 6 characters.');
-
                 const btn = $('recoverySubmit');
                 btn.disabled = true; btn.textContent = 'Updating…';
                 try {
@@ -1472,19 +1422,15 @@
                         phone: phone, code: code, newPassword: newPassword
                     });
                     if (res && res.ok) {
-                        setStatus('✅ Password updated. You can now sign in.');
-                        setTimeout(() => {
-                            overlay.remove();
-                            toast('🔑 Password updated.');
-                        }, 1500);
+                        setStatus('✅ Password updated.');
+                        setTimeout(() => { overlay.remove(); toast('🔑 Password updated.'); }, 1500);
                     } else {
-                        showErr((res && res.message) || 'Could not reset password.');
+                        showErr((res && res.message) || 'Could not reset.');
                         btn.disabled = false; btn.textContent = 'Set new password';
                     }
                 } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Set new password'; }
             });
         }
-
         setTimeout(() => {
             if (isPassword) $('recoverySendCode')?.focus();
             else $('recoveryResend')?.focus();
@@ -1494,7 +1440,7 @@
     window.showRecoveryModal = showRecoveryModal;
 
     // ────────────────────────────────────────────────────────────
-    // 23. TOTP UNLOCK MODAL (when locked)
+    // 23. TOTP UNLOCK MODAL
     // ────────────────────────────────────────────────────────────
     function showTotpUnlockModal(phone, opts) {
         $('totpUnlockModal')?.remove();
@@ -1509,30 +1455,19 @@
                 <div style="text-align:center;margin-bottom:20px;">
                     <div style="font-size:2.2rem;margin-bottom:8px;">🔒</div>
                     <div style="font-size:1.15rem;font-weight:700;color:#ef4444;">Too many wrong codes</div>
-                    <div style="font-size:0.83rem;color:#a5b3d0;margin-top:6px;line-height:1.5;">
-                        Your time code is locked. Unlock it via email or sign in with your password.
-                    </div>
+                    <div style="font-size:0.83rem;color:#a5b3d0;margin-top:6px;line-height:1.5;">Your time code is locked. Unlock it via email or sign in with your password.</div>
                 </div>
-
-                <div id="unlockStep1">
-                    <button id="unlockRequest" style="${BTN_PRIMARY}">Email me an unlock code</button>
-                </div>
-
+                <div id="unlockStep1"><button id="unlockRequest" style="${BTN_PRIMARY}">Email me an unlock code</button></div>
                 <div id="unlockStep2" style="display:none;">
                     <div style="margin-bottom:12px;">
                         <label style="${LBL}">Unlock code (6 digits)</label>
-                        <input id="unlockCode" type="text" maxlength="6" inputmode="numeric" placeholder="123456" style="${INP}letter-spacing:6px;text-align:center;font-family:monospace;" />
+                        <input id="unlockCode" type="text" maxlength="6" inputmode="numeric" style="${INP}letter-spacing:6px;text-align:center;font-family:monospace;" />
                     </div>
                     <button id="unlockSubmit" style="${BTN_PRIMARY}">Unlock</button>
                 </div>
-
-                ${hasPassword ? `
-                    <button id="unlockUsePassword" style="${BTN_SECONDARY}">Use my password instead</button>
-                ` : ''}
-
+                ${hasPassword ? `<button id="unlockUsePassword" style="${BTN_SECONDARY}">Use my password instead</button>` : ''}
                 <div id="unlockStatus" style="display:none;font-size:0.78rem;color:#2fd992;background:rgba(47,217,146,.08);border:1px solid rgba(47,217,146,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
                 <div id="unlockError" style="display:none;font-size:0.78rem;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:12px;padding:10px 12px;margin-top:14px;line-height:1.5;"></div>
-
                 <button id="unlockCancel" style="${BTN_SECONDARY}">Cancel</button>
             </div>`;
         document.body.appendChild(overlay);
@@ -1558,7 +1493,7 @@
                     $('unlockStep2').style.display = 'block';
                     setTimeout(() => $('unlockCode')?.focus(), 100);
                 } else {
-                    showErr((res && res.message) || 'Could not send unlock code.');
+                    showErr((res && res.message) || 'Could not send.');
                     btn.disabled = false; btn.textContent = 'Email me an unlock code';
                 }
             } catch (e) { showErr('Network error.'); btn.disabled = false; btn.textContent = 'Email me an unlock code'; }
@@ -1573,7 +1508,7 @@
             try {
                 const res = await postJson({ secret: SHEET_WEBHOOK_SECRET, type: 'unlockTotp', phone: phone, code: code });
                 if (res && res.ok) {
-                    setStatus('✅ Unlocked. You can try signing in again.');
+                    setStatus('✅ Unlocked. Try signing in again.');
                     setTimeout(() => overlay.remove(), 1500);
                 } else {
                     showErr((res && res.message) || 'Invalid code.');
@@ -1588,7 +1523,6 @@
                 if (typeof opts.onUsePassword === 'function') opts.onUsePassword();
             });
         }
-
         setTimeout(() => $('unlockRequest')?.focus(), 200);
     }
 
@@ -1658,11 +1592,22 @@
                 </div>
             </div>
 
+            <div style="margin-top:14px;">
+                <label style="${LBL}">Verify your email</label>
+                <div style="display:flex;gap:8px;">
+                    <input id="bootRegOtp" type="text" placeholder="6-digit code"
+                           inputmode="numeric" maxlength="6" autocomplete="one-time-code"
+                           style="${INP}flex:1;min-width:0;letter-spacing:4px;text-align:center;font-family:'SF Mono',Menlo,monospace;" />
+                    <button id="bootRegSendOtp" type="button" style="${BTN_OTP}">Send OTP</button>
+                </div>
+                <div id="bootRegOtpStatus" style="font-size:0.72rem;color:#7a89a8;margin-top:6px;min-height:1em;line-height:1.5;"></div>
+            </div>
+
             <div id="bootRegPasswordWrap" style="margin-top:14px;">
                 <label style="${LBL}">Password <span style="text-transform:none;color:#5a6885;font-weight:400;">(optional)</span></label>
                 <input id="bootRegPassword" type="password" placeholder="At least 6 characters" autocomplete="new-password" style="${INP}" />
                 <div style="font-size:0.72rem;color:#5a6885;margin-top:6px;line-height:1.5;">
-                    You'll also receive a time-based code by email. Set a password if you'd like an alternative way to sign in.
+                    Set a password if you'd like an alternative way to sign in. Otherwise you'll use the time-based token we email you.
                 </div>
             </div>
 
@@ -1676,6 +1621,64 @@
             </div>`;
         screen.appendChild(card);
         document.body.appendChild(screen);
+
+        // Wire Send OTP for registration
+        (function wireRegOtp() {
+            const sendBtn = $('bootRegSendOtp');
+            const status = $('bootRegOtpStatus');
+            const setStatus = (t, c) => { if (status) { status.textContent = t; status.style.color = c || '#7a89a8'; } };
+
+            sendBtn.addEventListener('click', async () => {
+                const phone = $('bootRegPhone').value.trim();
+                const email = $('bootRegEmail').value.trim();
+                const name = $('bootRegName').value.trim();
+
+                if (!PHONE_RE.test(phone)) return toast('Enter a valid 10-digit Indian mobile (starts 6–9)');
+                if (!EMAIL_RE.test(email)) return toast('Please enter a valid email');
+
+                sendBtn.disabled = true;
+                sendBtn.textContent = 'Sending…';
+                setStatus('');
+
+                let res;
+                try {
+                    res = await postJson({
+                        secret: SHEET_WEBHOOK_SECRET,
+                        type: 'sendRegOtp',
+                        phone: phone,
+                        email: email,
+                        name: name || 'there'
+                    });
+                } catch (e) {
+                    res = { ok: false, error: 'network', message: 'Network error.' };
+                }
+
+                if (!res || !res.ok) {
+                    const msg = (res && res.message) || 'Could not send OTP.';
+                    toast('⚠️ ' + msg);
+                    setStatus('❌ ' + msg, '#ef4444');
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Send OTP';
+                    return;
+                }
+
+                toast('📧 OTP sent to ' + (res.sentTo || email));
+                setStatus('✅ Sent to ' + (res.sentTo || email) + '. Check inbox & spam.', '#2fd992');
+
+                let cd = res.cooldownSeconds || 30;
+                sendBtn.textContent = 'Resend in ' + cd + 's';
+                const tick = setInterval(() => {
+                    cd--;
+                    if (cd <= 0) {
+                        clearInterval(tick);
+                        sendBtn.disabled = false;
+                        sendBtn.textContent = 'Resend OTP';
+                    } else {
+                        sendBtn.textContent = 'Resend in ' + cd + 's';
+                    }
+                }, 1000);
+            });
+        })();
 
         $('bootRegGoogleBtn').addEventListener('click', async () => {
             const btn = $('bootRegGoogleBtn');
@@ -1724,12 +1727,14 @@
             const phone = $('bootRegPhone').value.trim();
             const email = $('bootRegEmail').value.trim();
             const password = $('bootRegPassword').value.trim();
+            const otpVal = ($('bootRegOtp')?.value || '').trim();
 
             if (!name) return showErr('Please enter your name');
             if (!userid) return showErr('Please choose a username');
             if (!USERNAME_RE.test(userid)) return showErr('Username: 3–20 letters, numbers, _ or .');
             if (!PHONE_RE.test(phone)) return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
             if (!EMAIL_RE.test(email)) return showErr('Please enter a valid email');
+            if (!/^\d{6}$/.test(otpVal)) return showErr('Enter the 6-digit OTP sent to your email.');
             if (password && password.length < 6) return showErr('Password must be at least 6 characters.');
 
             submitBtn.disabled = true;
@@ -1740,6 +1745,13 @@
             if (avail && avail.ok === false) return fail(avail.message || 'Availability check failed');
             if (avail && avail.usernameAvailable === false) return fail('Username is already taken');
             if (avail && avail.phoneAvailable === false) return fail('This phone is already registered. Try signing in.');
+
+            submitBtn.textContent = 'Verifying OTP…';
+
+            const verify = await verifyOtpEmail(phone, otpVal);
+            if (!verify || !verify.ok) {
+                return fail((verify && verify.message) || 'Invalid OTP. Try again.');
+            }
 
             submitBtn.textContent = 'Creating…';
 
@@ -1762,7 +1774,15 @@
             activateApp(userData);
             screen.remove();
             toast('✅ Welcome to Sandesai, ' + name + '!');
-            setTimeout(() => toast('📧 Check your email for your live token'), 1200);
+
+            if (regRes && regRes.emailStatus === 'failed') {
+                setTimeout(() => {
+                    toast('⚠️ Welcome email failed — tap "Forgot your code" on sign-in to retry');
+                    console.warn('Welcome email failed:', regRes.emailError);
+                }, 1400);
+            } else if (regRes && regRes.emailStatus === 'sent') {
+                setTimeout(() => toast('📧 Check your email for your live token'), 1200);
+            }
         });
 
         setTimeout(() => $('bootRegName')?.focus(), 400);
@@ -1795,7 +1815,6 @@
                 <div id="loginStep2" style="display:none;margin-top:14px;">
                     <div id="loginMethodLabel" style="font-size:0.78rem;color:#a5b3d0;margin-bottom:12px;"></div>
                     <div id="loginMethodToggle" style="display:none;gap:8px;margin-bottom:14px;"></div>
-
                     <div id="loginTotpBlock" style="display:none;">
                         <label style="${LBL}">
                             Enter your code
@@ -1807,7 +1826,6 @@
                             <button id="loginForgotCode" type="button" style="background:none;border:none;color:#a78bfa;font-size:0.75rem;cursor:pointer;font-family:inherit;text-decoration:underline;padding:4px 0;">Forgot your code? Resend welcome email</button>
                         </div>
                     </div>
-
                     <div id="loginPasswordBlock" style="display:none;">
                         <label style="${LBL}">Password</label>
                         <input id="loginPassword" type="password" placeholder="Your password" autocomplete="current-password" style="${INP}" />
@@ -1873,7 +1891,6 @@
             clearErr();
 
             if (!userMethods.length) {
-                // STEP 1: lookup
                 const phone = phoneInput.value.trim();
                 if (!PHONE_RE.test(phone)) return showErr('Enter a valid 10-digit Indian mobile (starts 6–9)');
                 submitBtn.disabled = true;
@@ -1888,16 +1905,34 @@
                 }
                 if (!res || !res.ok) {
                     submitBtn.disabled = false; submitBtn.textContent = 'Continue';
+                    if (res && res.error === 'not_found') {
+                        const phoneVal = phoneInput.value.trim();
+                        errBox.style.display = 'block';
+                        errBox.innerHTML = `
+                            <div style="color:#ef4444;font-weight:600;margin-bottom:8px;">No account for +91 ${escapeHtml(phoneVal)}</div>
+                            <div style="color:#a5b3d0;font-size:0.75rem;margin-bottom:10px;line-height:1.5;">Want to create one now? We'll pre-fill your number.</div>
+                            <button id="loginGoRegister" type="button" style="width:100%;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;font-family:inherit;">Create an account</button>
+                        `;
+                        setTimeout(() => {
+                            $('loginGoRegister')?.addEventListener('click', () => {
+                                screen.remove();
+                                showBootRegistrationScreen();
+                                setTimeout(() => {
+                                    const regPhone = $('bootRegPhone');
+                                    if (regPhone) { regPhone.value = phoneVal; regPhone.dispatchEvent(new Event('input')); }
+                                }, 100);
+                            });
+                        }, 50);
+                        return;
+                    }
                     return showErr((res && res.message) || 'Could not find this number.');
                 }
 
-                // If TOTP is locked → show unlock modal
                 if (res.totpLocked) {
                     submitBtn.disabled = false; submitBtn.textContent = 'Continue';
                     return showTotpUnlockModal(phone, {
                         hasPassword: !!res.hasPassword,
                         onUsePassword: () => {
-                            // Reset and show password-only flow
                             userMethods = ['password'];
                             activeMethod = 'password';
                             userHint = '';
@@ -1948,7 +1983,6 @@
                 return;
             }
 
-            // STEP 2: verify
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying…';
             const phone = phoneInput.value.trim();
@@ -1994,9 +2028,7 @@
                 }
                 if (res && res.error === 'wrong_code') return showErr('Wrong code. ' + ((res.triesLeft != null) ? res.triesLeft + ' tries left.' : ''));
                 if (res && res.error === 'wrong_password') return showErr('Wrong password. Try again.');
-                if (res && res.error === 'totp_disabled') {
-                    return showErr('Time code is disabled. Use your password.');
-                }
+                if (res && res.error === 'totp_disabled') return showErr('Time code is disabled. Use your password.');
                 return showErr((res && res.message) || 'Sign in failed.');
             }
 
@@ -2100,5 +2132,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v19 loaded — TOTP lock, unlock, disable, logout-all');
+    console.log('✨ enhancements.js v20 loaded — registration OTP flow');
 })();
