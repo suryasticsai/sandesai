@@ -1,5 +1,5 @@
 // ================================================================
-// js/enhancements.js  (v21 – Mandatory password)
+// js/enhancements.js  (v22 – Mobile Google Sign-In fix)
 // ================================================================
 (function () {
     'use strict';
@@ -15,7 +15,7 @@
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
 
-    const LOCAL_APP_VERSION = '1.1';
+    const LOCAL_APP_VERSION = '1.2';
 
     let bootHadInvite = false;
     let forceUpdateShown = false;
@@ -2084,9 +2084,20 @@
     window.showBootRegistrationScreen = showBootRegistrationScreen;
 
     // ────────────────────────────────────────────────────────────
-    // 27. BOOT
+    // 27. BOOT — MOBILE GOOGLE SIGN-IN FIX
     // ────────────────────────────────────────────────────────────
     async function onBoot() {
+        // 1) Ensure Firebase is initialized BEFORE checking for a redirect
+        //    result. Without this, firebase.auth() throws on mobile
+        //    (no-app error), the redirect result is silently skipped, and
+        //    the user lands back on the signup screen.
+        if (typeof firebase !== 'undefined' && (!firebase.apps || firebase.apps.length === 0)) {
+            if (typeof window.initFirebaseMessaging === 'function') {
+                try { window.initFirebaseMessaging(); } catch (e) {}
+            }
+        }
+
+        // 2) Now read the redirect result — safe because Firebase is initialized.
         if (typeof firebase !== 'undefined' && window.firebase && typeof window.firebase.auth === 'function') {
             try {
                 const authInstance = window.firebase.auth();
@@ -2097,7 +2108,9 @@
                     setTimeout(() => startGoogleRegistrationFlow(result.user), 400);
                     return;
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn('getRedirectResult failed:', e);
+            }
         }
 
         ensureWindowAuth();
@@ -2132,5 +2145,5 @@
         onBoot();
     }
 
-    console.log('✨ enhancements.js v21 loaded — mandatory password');
+    console.log('✨ enhancements.js v22 loaded — mobile Google Sign-In fixed');
 })();
