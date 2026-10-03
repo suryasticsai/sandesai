@@ -1,24 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
 // Sandesai Apps Script · v13-totp-auth
-//
-// Endpoints:
-//   GET  ?type=health | business | knowledge
-//   GET  ?type=sendOtp&phone=…&email=…&secret=…
-//   GET  ?type=checkOtp&phone=…&code=…
-//   GET  ?type=checkAvailability&phone=…&username=…
-//   GET  ?type=checkUser&uid=…&email=…
-//   GET  ?type=userConversations&phone=…
-//   GET  ?pass=…[&type=conversations|pushTokens|sessions|users]
-//   POST {type: conversation | sendOtp | verifyOtp | checkAvailability |
-//               checkLogin | login | resendWelcome | requestPasswordReset |
-//               resetPassword | deleteAccount | registerPushToken |
-//               removePushToken | registerSession | verifySession |
-//               removeSession}
-//   POST {…registration…}                            (default)
-//
-// Changes vs v12:
-//   • Added TOTP + password auth
-//   • Added recovery: resendWelcome, requestPasswordReset, resetPassword
 // ═══════════════════════════════════════════════════════════════
 
 const CODE_VERSION = 'v13-totp-auth';
@@ -63,8 +44,6 @@ const SCHEMA_FLAG = 'schema_v13_auth';
 const LOGO_URL = 'https://suryasticsai.github.io/sandesai/sandesai-logo.png';
 
 // ═══════════════════════════════════════════════════════════════
-// POST
-// ═══════════════════════════════════════════════════════════════
 function doPost(e) {
     try {
         ensureSchema_();
@@ -102,8 +81,6 @@ function doPost(e) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// GET
-// ═══════════════════════════════════════════════════════════════
 function doGet(e) {
     ensureSchema_();
     const params = (e && e.parameter) ? e.parameter : {};
@@ -140,25 +117,17 @@ function doGet(e) {
         });
     }
 
-    if (type === 'sendotp') {
-        return sendOtp({ secret: params.secret, phone: params.phone, email: params.email });
-    }
+    if (type === 'sendotp') return sendOtp({ secret: params.secret, phone: params.phone, email: params.email });
     if (type === 'checkotp') return _verifyOtpCore(String(params.phone || '').trim(), String(params.code || '').trim());
 
-    if (type === 'checkavailability') {
-        return checkAvailability({ phone: params.phone, username: params.username });
-    }
+    if (type === 'checkavailability') return checkAvailability({ phone: params.phone, username: params.username });
     if (type === 'checkuser') {
         const uid   = String(params.uid || '').trim();
         const email = String(params.email || '').trim();
         const existing = (uid && findUserByUid(uid)) || (email && findUserByEmail(email));
-        return jsonResponse({
-            ok: true,
-            version: CODE_VERSION,
-            exists: !!existing,
+        return jsonResponse({ ok: true, version: CODE_VERSION, exists: !!existing,
             registeredPhone: existing ? existing.phone : '',
-            registeredUsername: existing ? existing.username : ''
-        });
+            registeredUsername: existing ? existing.username : '' });
     }
     if (type === 'userconversations') {
         const phone = String(params.phone || '').trim();
@@ -168,29 +137,23 @@ function doGet(e) {
     }
 
     const pass = String(params.pass || '');
-    if (pass !== ADMIN_PASSWORD) {
-        return jsonResponse({ ok: false, version: CODE_VERSION, error: 'forbidden' });
-    }
+    if (pass !== ADMIN_PASSWORD) return jsonResponse({ ok: false, version: CODE_VERSION, error: 'forbidden' });
 
     if (type === 'conversations') return jsonResponse({ ok: true, version: CODE_VERSION, conversations: readConversations() });
     if (type === 'pushtokens')    return jsonResponse({ ok: true, version: CODE_VERSION, tokens: readPushTokens() });
     if (type === 'sessions')      return jsonResponse({ ok: true, version: CODE_VERSION, sessions: readSessions() });
     if (type === 'maintenance') {
         return jsonResponse({
-            ok: true,
-            version: CODE_VERSION,
+            ok: true, version: CODE_VERSION,
             otpRowsPurged: purgeOldOtpRows_(),
             sessionsPurged: purgeExpiredSessions_(),
             propertyKeysCleaned: cleanupOtps(),
             duplicatesRemoved: dedupeAllRegistrations_()
         });
     }
-
     return jsonResponse({ ok: true, version: CODE_VERSION, users: readUsers() });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SCHEMA
 // ═══════════════════════════════════════════════════════════════
 function ensureSchema_() {
     try {
@@ -205,75 +168,59 @@ function ensureSchema_() {
 
 function resetSchemaFlag() {
     PropertiesService.getScriptProperties().deleteProperty(SCHEMA_FLAG);
-    Logger.log('Schema flag cleared — migration will run on next request.');
+    Logger.log('Schema flag cleared.');
 }
 
 function migrateRegistrationsSheet_() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(REGISTRATIONS_SHEET);
     if (!sheet) return;
-
     const data = sheet.getDataRange().getValues();
     const headers = (data[0] || []).map(function (h) { return String(h || '').trim(); });
-
     if (headers[0] === 'Name' && headers[8] === 'Auth Method' && headers[9] === 'Password Hash') return;
 
     const hasData = data.length > 1 && data.slice(1).some(function (r) { return String(r[2] || '').trim(); });
-
     if (!hasData) {
         sheet.clearContents();
         sheet.getRange(1, 1, 1, REG_HEADERS.length).setValues([REG_HEADERS]);
-        console.log('✅ Sheet1 headers reset to v13 schema.');
         return;
     }
 
     const byPhone = {};
     const order = [];
-
     for (let i = 1; i < data.length; i++) {
         const r = data[i];
         const phone = String(r[2] || '').trim();
         if (!phone) continue;
-
         const createdMs = toMillis_(r[4] || r[3]);
         const loginMs   = toMillis_(r[5] || r[3]);
-        const name   = String(r[0] || '').trim();
-        const uname  = String(r[1] || '').trim();
-        const uid    = String(r[6] || r[4] || '').trim();
-        const email  = String(r[3] && r[3].indexOf('@') !== -1 ? r[3] : '').trim();
-
+        const name = String(r[0] || '').trim();
+        const uname = String(r[1] || '').trim();
+        const uid = String(r[6] || r[4] || '').trim();
+        const email = String(r[3] && r[3].indexOf('@') !== -1 ? r[3] : '').trim();
         if (!byPhone[phone]) {
-            byPhone[phone] = {
-                name: name, username: uname, phone: phone, email: email,
+            byPhone[phone] = { name: name, username: uname, phone: phone, email: email,
                 createdAt: createdMs, lastLogin: loginMs, uid: uid,
-                status: 'active', authMethod: 'totp', passwordHash: '', timeOffset: 0
-            };
+                status: 'active', authMethod: 'totp', passwordHash: '', timeOffset: 0 };
             order.push(phone);
         } else {
             const rec = byPhone[phone];
-            if (name)  rec.name = name;
+            if (name) rec.name = name;
             if (uname) rec.username = uname;
-            if (uid)   rec.uid = uid;
+            if (uid) rec.uid = uid;
             if (email) rec.email = email;
         }
     }
-
     const rows = order.map(function (phone) {
         const u = byPhone[phone];
-        return [
-            u.name, u.username, u.phone, u.email,
+        return [u.name, u.username, u.phone, u.email,
             u.createdAt ? new Date(u.createdAt).toISOString() : '',
             u.lastLogin ? new Date(u.lastLogin).toISOString() : '',
-            u.uid, u.status,
-            u.authMethod, u.passwordHash, u.timeOffset
-        ];
+            u.uid, u.status, u.authMethod, u.passwordHash, u.timeOffset];
     });
-
     sheet.clearContents();
     sheet.getRange(1, 1, 1, REG_HEADERS.length).setValues([REG_HEADERS]);
     if (rows.length) sheet.getRange(2, 1, rows.length, REG_HEADERS.length).setValues(rows);
-
-    console.log('✅ Sheet1 migrated to v13. Users:', rows.length);
 }
 
 function migrateOtpSheet_() {
@@ -300,13 +247,8 @@ function ensureSessionsSheet_() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AUTH
-// ═══════════════════════════════════════════════════════════════
 function hashPassword_(phone, password) {
-    const bytes = Utilities.computeDigest(
-        Utilities.DigestAlgorithm.SHA_256,
-        SECRET + '|pw|' + phone + '|' + password
-    );
+    const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SECRET + '|pw|' + phone + '|' + password);
     return Utilities.base64Encode(bytes);
 }
 
@@ -341,6 +283,15 @@ function formatTime12_(d) {
     return String(h).padStart(2, '0') + ':' + m + ' ' + ampm;
 }
 
+// Cryptic hint — never mentions HHMM, 12-hour clock, or time format
+function buildCrypticHint_(offset) {
+    if (!offset || offset === 0) return "You are right on time. No adjustment needed.";
+    const n = Math.abs(offset);
+    const s = n === 1 ? 'step' : 'steps';
+    if (offset > 0) return "You are " + n + " " + s + " ahead of your time. Use it wisely.";
+    return "You are " + n + " " + s + " behind your time. Catch up wisely.";
+}
+
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════════════
@@ -350,12 +301,20 @@ function checkLogin(body) {
     if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for this number. Please register first.' });
+
+    const methods = [];
+    if (user.authMethod === 'totp' || user.authMethod === 'both' || user.timeOffset) methods.push('totp');
+    if (user.passwordHash) methods.push('password');
+    if (user.authMethod === 'google') methods.push('google');
+    if (!methods.length) methods.push('totp');
+
     return jsonResponse({
         ok: true,
         version: CODE_VERSION,
-        authMethod: user.authMethod || 'totp',
+        methods: methods,
         name: user.name || '',
-        username: user.username || ''
+        username: user.username || '',
+        hint: methods.indexOf('totp') !== -1 ? buildCrypticHint_(user.timeOffset) : ''
     });
 }
 
@@ -371,13 +330,13 @@ function login(body) {
         const code = String(body.code || '').trim();
         if (!/^\d{4}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 4 digits.' });
         if (!verifyTimeCode_(code, user.timeOffset || 0)) {
-            return jsonResponse({ ok: false, error: 'wrong_code', message: 'Wrong code. Check your device time and offset.' });
+            return jsonResponse({ ok: false, error: 'wrong_code', message: 'Wrong code.' });
         }
     } else if (method === 'password') {
         const password = String(body.password || '');
         if (!password) return jsonResponse({ ok: false, error: 'invalid_password', message: 'Password required.' });
-        const expected = user.passwordHash || '';
-        if (!expected || hashPassword_(phone, password) !== expected) {
+        if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password', message: 'No password set on this account.' });
+        if (hashPassword_(phone, password) !== user.passwordHash) {
             return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong password.' });
         }
     } else {
@@ -393,12 +352,8 @@ function login(body) {
         ok: true,
         version: CODE_VERSION,
         user: {
-            name: user.name,
-            username: user.username,
-            phone: user.phone,
-            email: user.email,
-            uid: user.uid,
-            authMethod: method
+            name: user.name, username: user.username, phone: user.phone,
+            email: user.email, uid: user.uid, authMethod: method
         }
     });
 }
@@ -410,12 +365,9 @@ function resendWelcome(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
     const phone = String(body.phone || '').trim();
     if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
-
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for this number.' });
-    if (!user.email || !EMAIL_RE.test(user.email)) {
-        return jsonResponse({ ok: false, error: 'no_email', message: 'No email on file. Contact support.' });
-    }
+    if (!user.email || !EMAIL_RE.test(user.email)) return jsonResponse({ ok: false, error: 'no_email', message: 'No email on file.' });
 
     const props = PropertiesService.getScriptProperties();
     const rateKey = 'resendrate_' + phone;
@@ -426,22 +378,20 @@ function resendWelcome(body) {
         if (now > rate.resetAt) rate = { count: 0, resetAt: now + 60 * 60 * 1000, lastAt: 0 };
         if (rate.lastAt && now - rate.lastAt < 60 * 1000) {
             const s = Math.ceil((60 * 1000 - (now - rate.lastAt)) / 1000);
-            return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's before requesting again.' };
+            return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's.' };
         }
         if (rate.count >= 3) {
             const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many', message: 'Too many requests. Try again in ' + m + ' min.' };
+            return { ok: false, error: 'too_many', message: 'Too many requests. Try in ' + m + ' min.' };
         }
-        rate.count++;
-        rate.lastAt = now;
+        rate.count++; rate.lastAt = now;
         props.setProperty(rateKey, JSON.stringify(rate));
         return { ok: true };
     });
     if (!gate.ok) return jsonResponse(gate);
 
     const method = user.authMethod || 'totp';
-
-    if (method === 'totp') {
+    if (method === 'totp' || method === 'both' || user.timeOffset) {
         const code = formatTimeCode_(new Date(), user.timeOffset || 0);
         sendTimeBasedOTPEmail(user.email, code, user.timeOffset || 0, user.name, phone);
     } else if (method === 'password') {
@@ -458,16 +408,13 @@ function resendWelcome(body) {
 function requestPasswordReset(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
     const phone = String(body.phone || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
-
+    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const user = findUserByPhone(phone);
-    if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for this number.' });
-    if (user.authMethod !== 'password') {
-        return jsonResponse({ ok: false, error: 'not_password', message: 'This account does not use a password.' });
+    if (!user) return jsonResponse({ ok: false, error: 'not_found' });
+    if (!user.passwordHash && user.authMethod !== 'password' && user.authMethod !== 'both') {
+        return jsonResponse({ ok: false, error: 'not_password', message: 'This account has no password.' });
     }
-    if (!user.email || !EMAIL_RE.test(user.email)) {
-        return jsonResponse({ ok: false, error: 'no_email', message: 'No email on file.' });
-    }
+    if (!user.email || !EMAIL_RE.test(user.email)) return jsonResponse({ ok: false, error: 'no_email' });
 
     const props = PropertiesService.getScriptProperties();
     const rateKey = 'pwresetrate_' + phone;
@@ -481,17 +428,16 @@ function requestPasswordReset(body) {
         if (now > rate.resetAt) rate = { count: 0, resetAt: now + 60 * 60 * 1000, lastAt: 0 };
         if (rate.lastAt && now - rate.lastAt < 60 * 1000) {
             const s = Math.ceil((60 * 1000 - (now - rate.lastAt)) / 1000);
-            return { ok: false, error: 'too_soon', message: 'Wait ' + s + 's before retrying.' };
+            return { ok: false, error: 'too_soon', message: 'Wait ' + s + 's.' };
         }
         if (rate.count >= 3) {
             const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many', message: 'Too many reset requests. Try in ' + m + ' min.' };
+            return { ok: false, error: 'too_many', message: 'Too many requests. Try in ' + m + ' min.' };
         }
         props.setProperty('pwreset_' + phone, JSON.stringify({
             hash: hashCode_(phone, code), email: user.email, expiresAt: expiresAt, tries: 0, createdAt: now
         }));
-        rate.count++;
-        rate.lastAt = now;
+        rate.count++; rate.lastAt = now;
         props.setProperty(rateKey, JSON.stringify(rate));
         return { ok: true };
     });
@@ -506,11 +452,9 @@ function requestPasswordReset(body) {
             body: 'Your Sandesai password reset code is ' + code + '. Expires in 15 minutes.'
         });
     } catch (e) {
-        console.error('Reset email failed:', e);
         props.deleteProperty('pwreset_' + phone);
         return jsonResponse({ ok: false, error: 'email_failed', message: 'Could not send reset email.' });
     }
-
     const parts = user.email.split('@');
     const masked = parts[0].slice(0, 2) + '***@' + parts[1];
     return jsonResponse({ ok: true, version: CODE_VERSION, sentTo: masked, expiresAt: expiresAt });
@@ -521,48 +465,38 @@ function resetPassword(body) {
     const phone = String(body.phone || '').trim();
     const code = String(body.code || '').trim();
     const newPassword = String(body.newPassword || '');
-
     if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (!/^\d{6}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 6 digits.' });
+    if (!/^\d{6}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code' });
     if (newPassword.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
-
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (user.authMethod !== 'password') return jsonResponse({ ok: false, error: 'not_password' });
 
     return withLock_(function () {
         const props = PropertiesService.getScriptProperties();
         const key = 'pwreset_' + phone;
         const raw = props.getProperty(key);
-        if (!raw) return jsonResponse({ ok: false, error: 'no_reset', message: 'No reset in progress. Request a new code.' });
-
+        if (!raw) return jsonResponse({ ok: false, error: 'no_reset', message: 'Request a new code.' });
         let reset;
         try { reset = JSON.parse(raw); }
         catch (e) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'corrupt' }); }
-
-        if (Date.now() > reset.expiresAt) {
-            props.deleteProperty(key);
-            return jsonResponse({ ok: false, error: 'expired', message: 'Code expired. Request a new one.' });
-        }
+        if (Date.now() > reset.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired', message: 'Code expired.' }); }
         if (reset.hash !== hashCode_(phone, code)) {
             reset.tries = (reset.tries || 0) + 1;
-            if (reset.tries >= 5) {
-                props.deleteProperty(key);
-                return jsonResponse({ ok: false, error: 'too_many_attempts', message: 'Too many wrong tries.' });
-            }
+            if (reset.tries >= 5) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'too_many_attempts' }); }
             props.setProperty(key, JSON.stringify(reset));
             return jsonResponse({ ok: false, error: 'invalid_code', triesLeft: 5 - reset.tries, message: 'Wrong code. ' + (5 - reset.tries) + ' tries left.' });
         }
 
         const sheet = getSheet(REGISTRATIONS_SHEET);
         if (!sheet) return jsonResponse({ ok: false, error: 'no_sheet' });
-
         const newHash = hashPassword_(phone, newPassword);
         sheet.getRange(user.row, 10).setValue(newHash);
+        // Ensure authMethod includes password now
+        const curMethod = String(sheet.getRange(user.row, 9).getValue() || 'totp');
+        if (curMethod === 'totp') sheet.getRange(user.row, 9).setValue('both');
         sheet.getRange(user.row, 6).setValue(new Date().toISOString());
 
         props.deleteProperty(key);
-
         try {
             MailApp.sendEmail({
                 to: reset.email,
@@ -571,7 +505,6 @@ function resetPassword(body) {
                 htmlBody: buildPasswordChangedEmailHtml(user.name)
             });
         } catch (e) {}
-
         return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Password updated.' });
     });
 }
@@ -589,6 +522,7 @@ function logRegistration(body) {
     let   email    = String(body.email || '').trim();
     const provider = String(body.provider || 'otp').toLowerCase();
     const authMethod = String(body.authMethod || provider || 'totp').toLowerCase();
+    const pw       = String(body.password || '').trim();
 
     if (!PHONE_RE.test(phone)) {
         return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Enter a valid 10-digit Indian mobile number (starts with 6–9).' });
@@ -596,7 +530,6 @@ function logRegistration(body) {
     if (!USERNAME_RE.test(username)) {
         return jsonResponse({ ok: false, error: 'invalid_username', message: 'Username must be 3–20 letters, numbers, underscore or dot.' });
     }
-
     if (!email) {
         try {
             const cached = PropertiesService.getScriptProperties().getProperty('otpemail_' + phone);
@@ -612,17 +545,14 @@ function logRegistration(body) {
 
     const data = sheet.getDataRange().getValues();
     const lower = username.toLowerCase();
-
     const phoneRows = [];
     let usernameRow = -1;
-
     for (let i = 1; i < data.length; i++) {
         const rowPhone = String(data[i][2] || '').trim();
         const rowUser  = String(data[i][1] || '').trim().toLowerCase();
         if (rowPhone === phone) phoneRows.push(i + 1);
         if (rowUser === lower && rowPhone !== phone) usernameRow = i + 1;
     }
-
     if (usernameRow !== -1) {
         return jsonResponse({ ok: false, error: 'username_taken', message: 'Username "' + username + '" is already taken.' });
     }
@@ -637,10 +567,8 @@ function logRegistration(body) {
     // Re-registration
     if (phoneRows.length) {
         for (let i = phoneRows.length - 1; i >= 1; i--) sheet.deleteRow(phoneRows[i]);
-
         const keepRow = phoneRows[0];
         const cur = sheet.getRange(keepRow, 1, 1, REG_HEADERS.length).getValues()[0];
-
         const createdAtIso = isoOrEmpty_(cur[4]) || nowIso;
         const existingEmail = String(cur[3] || '');
         const existingUid   = String(cur[6] || '');
@@ -652,16 +580,20 @@ function logRegistration(body) {
         let finalHash = existingHash;
         let finalOffset = existingOffset;
 
-        if (authMethod && authMethod !== 'google') {
-            finalMethod = authMethod;
-            if (authMethod === 'password') {
-                const pw = String(body.password || '');
+        if (authMethod === 'google') {
+            finalMethod = 'google';
+        } else {
+            // Ensure we always have a TOTP offset
+            if (!finalOffset) finalOffset = generateTimeOffset_();
+            // Store password if provided
+            if (pw) {
                 if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
                 finalHash = hashPassword_(phone, pw);
-                finalOffset = 0;
-            } else if (authMethod === 'totp') {
-                if (finalMethod !== 'totp' || !finalOffset) finalOffset = generateTimeOffset_();
-                finalHash = '';
+                finalMethod = 'both';
+            } else if (!finalHash) {
+                finalMethod = 'totp';
+            } else {
+                finalMethod = 'both';
             }
         }
 
@@ -675,45 +607,47 @@ function logRegistration(body) {
             name, username, phone, email,
             '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + '</p>');
 
-        if (finalMethod === 'totp' && email) {
-            const currentCode = formatTimeCode_(new Date(), finalOffset);
-            sendTimeBasedOTPEmail(email, currentCode, finalOffset, name, phone);
-        } else if (finalMethod === 'password' && email) {
-            sendPasswordWelcomeEmail(email, name, phone);
+        if (email) {
+            if (finalMethod === 'totp' || finalMethod === 'both') {
+                const currentCode = formatTimeCode_(new Date(), finalOffset);
+                sendTimeBasedOTPEmail(email, currentCode, finalOffset, name, phone);
+            } else if (finalMethod === 'password') {
+                sendPasswordWelcomeEmail(email, name, phone);
+            }
         }
 
         return jsonResponse({ ok: true, version: CODE_VERSION, updated: true, row: keepRow, duplicatesRemoved: phoneRows.length - 1 });
     }
 
     // New user
-    let finalMethod = authMethod;
+    let finalMethod = 'totp';
     let finalHash = '';
     let finalOffset = 0;
 
-    if (authMethod === 'password') {
-        const pw = String(body.password || '');
-        if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
-        finalHash = hashPassword_(phone, pw);
-    } else if (authMethod === 'google') {
+    if (authMethod === 'google') {
         finalMethod = 'google';
     } else {
-        finalMethod = 'totp';
+        // Always generate a TOTP offset
         finalOffset = generateTimeOffset_();
+        if (pw) {
+            if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
+            finalHash = hashPassword_(phone, pw);
+            finalMethod = 'both';
+        } else {
+            finalMethod = 'totp';
+        }
     }
 
-    sheet.appendRow([
-        name, username, phone, email, nowIso, nowIso, uid, 'active',
-        finalMethod, finalHash, finalOffset
-    ]);
+    sheet.appendRow([name, username, phone, email, nowIso, nowIso, uid, 'active', finalMethod, finalHash, finalOffset]);
 
     notifyAdmin_('🎉 New user: ' + (name || phone), '🎉 New registration', '#a78bfa',
         name, username, phone, email,
         '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + '</p>');
 
-    if (finalMethod === 'totp' && email) {
+    if (email && (finalMethod === 'totp' || finalMethod === 'both')) {
         const currentCode = formatTimeCode_(new Date(), finalOffset);
         sendTimeBasedOTPEmail(email, currentCode, finalOffset, name, phone);
-    } else if (finalMethod === 'password' && email) {
+    } else if (email && finalMethod === 'password') {
         sendPasswordWelcomeEmail(email, name, phone);
     }
 
@@ -723,8 +657,7 @@ function logRegistration(body) {
 function notifyAdmin_(subject, heading, color, name, username, phone, email, extraHtml) {
     try {
         MailApp.sendEmail({
-            to: NOTIFY_EMAIL,
-            subject: subject,
+            to: NOTIFY_EMAIL, subject: subject,
             htmlBody:
                 '<div style="font-family:Inter,Arial,sans-serif;padding:20px;background:#0f0d24;color:#eef0f5;border-radius:16px;">' +
                     '<h2 style="color:' + color + ';margin:0 0 12px;">' + heading + '</h2>' +
@@ -869,7 +802,7 @@ function buildPasswordResetEmailHtml(code, userName) {
 <tr><td align="center" style="padding:20px 20px 6px 20px;"><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#a78bfa;font-weight:600;">Your reset code</div></td></tr>
 <tr><td align="center" style="padding:10px 20px 22px 20px;"><div style="display:inline-block;font-size:42px;font-weight:800;letter-spacing:12px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 24px rgba(139,92,246,.65);padding-left:12px;">${code}</div></td></tr>
 </table></td></tr>
-<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">⏱️ <b style="color:#7a89a8;">Expires in 15 minutes.</b> If you didn't request this, you can safely ignore this email.</div></td></tr>
+<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">⏱️ <b style="color:#7a89a8;">Expires in 15 minutes.</b> If you didn't request this, ignore this email.</div></td></tr>
 <tr><td align="center" style="padding:28px 32px 36px 32px;">
 <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
 <img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(139,92,246,.3);" />
@@ -978,14 +911,12 @@ function deleteAccount(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
     const phone = String(body.phone || '').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-
     const existing = findUserByPhone(phone);
-    if (!existing) return jsonResponse({ ok: false, error: 'not_found', message: 'No account found for +91 ' + phone });
-
+    if (!existing) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for +91 ' + phone });
     const suppliedUid = String(body.uid || '').trim();
     if (existing.uid) {
-        if (!suppliedUid) return jsonResponse({ ok: false, error: 'uid_required', message: 'Sign in again and retry.' });
-        if (suppliedUid !== existing.uid) return jsonResponse({ ok: false, error: 'uid_mismatch', message: 'Verification failed.' });
+        if (!suppliedUid) return jsonResponse({ ok: false, error: 'uid_required' });
+        if (suppliedUid !== existing.uid) return jsonResponse({ ok: false, error: 'uid_mismatch' });
     }
 
     const usersDeleted    = deleteRowsWhere_(REGISTRATIONS_SHEET, 2, phone);
@@ -995,22 +926,16 @@ function deleteAccount(body) {
 
     try {
         const props = PropertiesService.getScriptProperties();
-        props.deleteProperty('otp_' + phone);
-        props.deleteProperty('otprate_' + phone);
-        props.deleteProperty('otpok_' + phone);
-        props.deleteProperty('otpemail_' + phone);
-        props.deleteProperty('pwreset_' + phone);
-        props.deleteProperty('pwresetrate_' + phone);
-        props.deleteProperty('resendrate_' + phone);
+        ['otp_','otprate_','otpok_','otpemail_','pwreset_','pwresetrate_','resendrate_'].forEach(function (prefix) {
+            props.deleteProperty(prefix + phone);
+        });
     } catch (e) {}
 
     notifyAdmin_('🗑️ Account deleted: ' + (existing.name || phone), '🗑️ Account deleted', '#ef4444',
-        existing.name, existing.username, phone, existing.email,
-        '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">User rows: ' + usersDeleted + ' · Convs: ' + convDeleted + ' · Tokens: ' + tokensDeleted + ' · Sessions: ' + sessionsDeleted + '</p>');
+        existing.name, existing.username, phone, existing.email, '');
 
     return jsonResponse({
-        ok: true,
-        version: CODE_VERSION,
+        ok: true, version: CODE_VERSION,
         deleted: { user: usersDeleted, conversations: convDeleted, pushTokens: tokensDeleted, sessions: sessionsDeleted },
         message: 'Account deleted successfully.'
     });
@@ -1037,7 +962,6 @@ function registerPushToken(body) {
     const platform = String(body.platform || 'web').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!token || token.length < 20) return jsonResponse({ ok: false, error: 'invalid_token' });
-
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(PUSH_TOKENS_SHEET);
     if (!sheet) {
@@ -1061,12 +985,7 @@ function readPushTokens() {
     const sheet = getSheet(PUSH_TOKENS_SHEET);
     if (!sheet) return [];
     return sheet.getDataRange().getValues().slice(1).map(function (r) {
-        return {
-            timestamp: toMillis_(r[0]),
-            phone: String(r[1] || ''),
-            token: String(r[2] || ''),
-            platform: String(r[3] || 'web')
-        };
+        return { timestamp: toMillis_(r[0]), phone: String(r[1] || ''), token: String(r[2] || ''), platform: String(r[3] || 'web') };
     });
 }
 
@@ -1082,15 +1001,12 @@ function registerSession(body) {
     const device = String(body.device || 'web').trim().slice(0, 120);
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!token || token.length < 16) return jsonResponse({ ok: false, error: 'invalid_token' });
-
     const sheet = getSheet(SESSIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: false, error: 'no_sessions_sheet' });
-
     const hash = hashCode_(phone, token);
     const now = Date.now();
     const expiresIso = new Date(now + SESSION_TTL_MS).toISOString();
     const nowIso = new Date(now).toISOString();
-
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
         if (String(data[i][1]) === hash) {
@@ -1107,24 +1023,19 @@ function verifySession(body) {
     const phone = String(body.phone || '').trim();
     const token = String(body.token || '').trim();
     if (!PHONE_LOOSE.test(phone) || !token) return jsonResponse({ ok: false, error: 'invalid_request' });
-
     const sheet = getSheet(SESSIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: false, error: 'no_sessions_sheet' });
-
     const hash = hashCode_(phone, token);
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
         if (String(data[i][1]) === hash && String(data[i][0]) === phone) {
             const expires = toMillis_(data[i][5]);
-            if (expires && Date.now() > expires) {
-                sheet.deleteRow(i + 1);
-                return jsonResponse({ ok: false, error: 'expired', message: 'Session expired.' });
-            }
+            if (expires && Date.now() > expires) { sheet.deleteRow(i + 1); return jsonResponse({ ok: false, error: 'expired' }); }
             sheet.getRange(i + 1, 5).setValue(new Date().toISOString());
             return jsonResponse({ ok: true, version: CODE_VERSION, valid: true });
         }
     }
-    return jsonResponse({ ok: false, error: 'not_found', message: 'Session not recognised.' });
+    return jsonResponse({ ok: false, error: 'not_found' });
 }
 
 function removeSession(body) {
@@ -1132,10 +1043,8 @@ function removeSession(body) {
     const phone = String(body.phone || '').trim();
     const token = String(body.token || '').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-
     const sheet = getSheet(SESSIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: true, version: CODE_VERSION, removed: 0 });
-
     let removed = 0;
     if (token) {
         const hash = hashCode_(phone, token);
@@ -1277,10 +1186,7 @@ function readUserConversations(phone, limit) {
 // EMAIL OTP (invite overlay)
 // ═══════════════════════════════════════════════════════════════
 function hashCode_(phone, code) {
-    const bytes = Utilities.computeDigest(
-        Utilities.DigestAlgorithm.SHA_256,
-        SECRET + '|' + phone + '|' + code
-    );
+    const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SECRET + '|' + phone + '|' + code);
     return Utilities.base64Encode(bytes);
 }
 
@@ -1306,7 +1212,6 @@ function sendOtp(body) {
     if (!EMAIL_RE.test(email)) {
         return jsonResponse({ ok: false, error: 'invalid_email', message: 'Enter a valid email.' });
     }
-
     const props   = PropertiesService.getScriptProperties();
     const rateKey = 'otprate_' + phone;
     const now     = Date.now();
@@ -1319,22 +1224,20 @@ function sendOtp(body) {
         if (now > rate.resetAt) rate = { count: 0, resetAt: now + 60 * 60 * 1000, lastAt: 0 };
         if (rate.lastAt && now - rate.lastAt < OTP_MIN_GAP_MS) {
             const s = Math.ceil((OTP_MIN_GAP_MS - (now - rate.lastAt)) / 1000);
-            return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's before requesting another code.' };
+            return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's.' };
         }
         if (rate.count >= OTP_RATE_PER_HR) {
             const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many_requests', message: 'Too many OTP requests. Try again in ' + m + ' min.' };
+            return { ok: false, error: 'too_many_requests', message: 'Try again in ' + m + ' min.' };
         }
         props.setProperty('otp_' + phone, JSON.stringify({
             hash: hashCode_(phone, code), email: email, expiresAt: expiresAt, tries: 0, createdAt: now
         }));
         props.setProperty('otpemail_' + phone, email);
-        rate.count++;
-        rate.lastAt = now;
+        rate.count++; rate.lastAt = now;
         props.setProperty(rateKey, JSON.stringify(rate));
         return { ok: true };
     });
-
     if (!gate.ok) return jsonResponse(gate);
 
     let logRowIndex = -1;
@@ -1413,21 +1316,13 @@ function _verifyOtpCore(phone, code) {
         const key = 'otp_' + phone;
         const raw = props.getProperty(key);
         if (!raw) return jsonResponse({ ok: false, error: 'no_otp', message: 'Please request a new code.' });
-
         let otp;
         try { otp = JSON.parse(raw); }
         catch (e) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'corrupt_otp' }); }
-
-        if (Date.now() > otp.expiresAt) {
-            props.deleteProperty(key);
-            return jsonResponse({ ok: false, error: 'expired', message: 'Code expired.' });
-        }
+        if (Date.now() > otp.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired', message: 'Code expired.' }); }
         if (otp.hash !== hashCode_(phone, code)) {
             otp.tries = (otp.tries || 0) + 1;
-            if (otp.tries >= OTP_MAX_TRIES) {
-                props.deleteProperty(key);
-                return jsonResponse({ ok: false, error: 'too_many_attempts', message: 'Too many wrong tries.' });
-            }
+            if (otp.tries >= OTP_MAX_TRIES) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'too_many_attempts' }); }
             props.setProperty(key, JSON.stringify(otp));
             return jsonResponse({ ok: false, error: 'invalid_code', triesLeft: OTP_MAX_TRIES - otp.tries, message: 'Wrong code. ' + (OTP_MAX_TRIES - otp.tries) + ' tries left.' });
         }
@@ -1489,27 +1384,20 @@ function cleanupOtps() {
                 if (JSON.parse(all[k]).expiresAt < now) { props.deleteProperty(k); cleaned++; }
             } else if (k.indexOf('otpok_') === 0) {
                 if (Number(all[k]) < now) { props.deleteProperty(k); cleaned++; }
-            } else if (k.indexOf('otprate_') === 0) {
+            } else if (k.indexOf('otprate_') === 0 || k.indexOf('pwresetrate_') === 0 || k.indexOf('resendrate_') === 0) {
                 if (JSON.parse(all[k]).resetAt < now) { props.deleteProperty(k); cleaned++; }
             } else if (k.indexOf('pwreset_') === 0) {
                 if (JSON.parse(all[k]).expiresAt < now) { props.deleteProperty(k); cleaned++; }
-            } else if (k.indexOf('pwresetrate_') === 0) {
-                if (JSON.parse(all[k]).resetAt < now) { props.deleteProperty(k); cleaned++; }
-            } else if (k.indexOf('resendrate_') === 0) {
-                if (JSON.parse(all[k]).resetAt < now) { props.deleteProperty(k); cleaned++; }
             }
         } catch (e) { props.deleteProperty(k); cleaned++; }
     });
-    const otpRows = purgeOldOtpRows_();
-    const sessions = purgeExpiredSessions_();
-    const dupes = dedupeAllRegistrations_();
-    Logger.log('cleanupOtps → props:' + cleaned + ' otpRows:' + otpRows + ' sessions:' + sessions + ' dupes:' + dupes);
+    Logger.log('cleanupOtps → props:' + cleaned);
     return cleaned;
 }
 
 function authTest() {
     MailApp.sendEmail(Session.getActiveUser().getEmail(), 'Sandesai mail test', 'MailApp authorized. Quota: ' + safeMailQuota_());
-    Logger.log('Mail OK. Remaining quota: ' + safeMailQuota_());
+    Logger.log('Mail OK. Quota: ' + safeMailQuota_());
 }
 
 function runMigrationNow() {
@@ -1549,7 +1437,5 @@ function getSheet(name) {
 }
 
 function jsonResponse(obj) {
-    return ContentService
-        .createTextOutput(JSON.stringify(obj))
-        .setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
