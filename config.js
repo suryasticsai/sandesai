@@ -3,7 +3,7 @@
 // Edit values HERE. Every other file reads from window.SANDESAI.
 // ================================================================
 window.SANDESAI = {
-    SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbypa1afKBfg2_ALV7mT4DWB8koFmy9GIbb9o0MlU_QEeXKvpimBmN9Tej7OMv0NNhiC/exec',
+    SHEET_API_URL: 'https://script.google.com/macros/s/AKfycbxiNb665yLKGPg2Gukvd7n7PRAN9F3wTK2ju4CEByE3NjZXh68MVWDK9SD0BBBpIcjk/exec',
     SHEET_WEBHOOK_SECRET: 'sandesai-webhook-2026',
     ADMIN_PASSWORD: 'sandesai-admin-2026',
     RAGINA_ASK_URL: 'https://ragina-crawler-ragina.vercel.app/api/ask',
