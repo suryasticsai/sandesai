@@ -8,9 +8,8 @@
     const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
     const CFG = window.SANDESAI || {};
-    const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL ||
-        'https://script.google.com/macros/s/AKfycbyRAbk9piL2uCLsQ67S1F3CA5qobAJzfYVSh9hXI_k6VJhjE2Ihy2--qS0h8tGQYZ8U/exec';
-    const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET || 'sandesai-webhook-2026';
+    const SHEET_WEBHOOK_URL = CFG.SHEET_API_URL;
+    const SHEET_WEBHOOK_SECRET = CFG.SHEET_WEBHOOK_SECRET;
 
     if (!window.SANDESAI) console.warn('⚠️ window.SANDESAI missing — is config.js loaded first?');
     console.log('🔗 Backend URL:', SHEET_WEBHOOK_URL);
