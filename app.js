@@ -8,6 +8,66 @@
 (function(global) {
     'use strict';
 
+    // ═══════════════════════════════════════════════════════════════
+    // Sandesai v18 patch — country auto-detect + tz offset + view-pw
+    // ═══════════════════════════════════════════════════════════════
+
+    // 1. Auto-detect country code from browser locale (falls back to India)
+    function __detectCountryCode() {
+        try {
+            const saved = localStorage.getItem('sandesai_country');
+            if (saved) return saved;
+            const map = {
+                IN:'91', US:'1', GB:'44', AE:'971', SG:'65', AU:'61', MY:'60',
+                DE:'49', FR:'33', JP:'81', CN:'86', BD:'880', PK:'92', LK:'94',
+                NP:'977', SA:'966', ZA:'27', BR:'55', CA:'1', IT:'39', ES:'34',
+                NL:'31', RU:'7', ID:'62', PH:'63', TH:'66', VN:'84', KR:'82'
+            };
+            const region = (navigator.language || 'en-IN').split('-')[1] || 'IN';
+            return map[region] || '91';
+        } catch (e) { return '91'; }
+    }
+    const __COUNTRY_CODE = __detectCountryCode();
+
+    // 2. Wrap window.fetch — auto-adds countryCode + clientTimezoneOffset
+    //    to every JSON body sent to the backend. No call-site changes needed.
+    (function () {
+        const _origFetch = window.fetch;
+        window.fetch = function (url, opts) {
+            try {
+                if (opts && opts.body && typeof opts.body === 'string') {
+                    const parsed = JSON.parse(opts.body);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        if (parsed.countryCode === undefined) parsed.countryCode = __COUNTRY_CODE;
+                        if (parsed.clientTimezoneOffset === undefined) {
+                            parsed.clientTimezoneOffset = -new Date().getTimezoneOffset();
+                        }
+                        opts.body = JSON.stringify(parsed);
+                    }
+                }
+            } catch (e) { /* not JSON, leave as-is */ }
+            return _origFetch.apply(this, arguments);
+        };
+    })();
+
+    // 3. View-password toggle — call from any 👁️ button:
+    //    <button type="button" onclick="togglePw('passwordFieldId', this)">👁️</button>
+    function togglePw(inputId, btn) {
+        const el = document.getElementById(inputId);
+        if (!el) return;
+        const showing = el.type === 'text';
+        el.type = showing ? 'password' : 'text';
+        btn.textContent = showing ? '👁️' : '🙈';
+        btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    }
+    // Expose on window so HTML onclick="" can reach it
+    global.togglePw = togglePw;
+    global.getCountryCode = () => __COUNTRY_CODE;
+
+    // ═══════════════════════════════════════════════════════════════
+    // ... existing code below unchanged ...
+    // ═══════════════════════════════════════════════════════════════
+
     const RAGINA_NUMBER = '0000000000';
     const API_URL = 'https://ragina-crawler-ragina.vercel.app/api/ask';
 
@@ -131,59 +191,6 @@
         timerSeconds = 0;
         return out;
     }
-
-// ═══════════════════════════════════════════════════════════════
-// Sandesai v18 patch — paste at TOP of app.js (after any const WEB_APP_URL)
-// ═══════════════════════════════════════════════════════════════
-
-// 1. Auto-detect country code from browser locale (falls back to India)
-function __detectCountryCode() {
-  try {
-    const saved = localStorage.getItem('sandesai_country');
-    if (saved) return saved;
-    // e.g. "en-IN" → "IN" → "91"
-    const map = {
-      IN:'91', US:'1', GB:'44', AE:'971', SG:'65', AU:'61', MY:'60',
-      DE:'49', FR:'33', JP:'81', CN:'86', BD:'880', PK:'92', LK:'94',
-      NP:'977', SA:'966', ZA:'27', BR:'55', CA:'1', IT:'39', ES:'34',
-      NL:'31', RU:'7', ID:'62', PH:'63', TH:'66', VN:'84', KR:'82'
-    };
-    const region = (navigator.language || 'en-IN').split('-')[1] || 'IN';
-    return map[region] || '91';
-  } catch (e) { return '91'; }
-}
-const __COUNTRY_CODE = __detectCountryCode();
-
-// 2. Wrap window.fetch — auto-adds countryCode + clientTimezoneOffset
-//    to every JSON body sent to the backend. Zero changes needed at call sites.
-(function () {
-  const _origFetch = window.fetch;
-  window.fetch = function (url, opts) {
-    try {
-      if (opts && opts.body && typeof opts.body === 'string') {
-        const parsed = JSON.parse(opts.body);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          if (parsed.countryCode === undefined) parsed.countryCode = __COUNTRY_CODE;
-          if (parsed.clientTimezoneOffset === undefined) {
-            parsed.clientTimezoneOffset = -new Date().getTimezoneOffset();
-          }
-          opts.body = JSON.stringify(parsed);
-        }
-      }
-    } catch (e) { /* not JSON, leave as-is */ }
-    return _origFetch.apply(this, arguments);
-  };
-})();
-
-// 3. View-password toggle — call from any 👁️ button:
-//    <button type="button" onclick="togglePw('passwordFieldId', this)">👁️</button>
-function togglePw(inputId, btn) {
-  const el = document.getElementById(inputId);
-  if (!el) return;
-  const showing = el.type === 'text';
-  el.type = showing ? 'password' : 'text';
-  btn.textContent = showing ? '👁️' : '🙈';
-}
 
     function getLogs() {
         try { return JSON.parse(localStorage.getItem('premCallLogs')) || []; } catch (e) { return []; }
@@ -905,7 +912,6 @@ function togglePw(inputId, btn) {
                 const r = 'Nice to meet you, ' + userName + '. What can I help you with today?';
                 logMsg('ragina', r);
 
-                // 🧠 Log to Sheet
                 if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
                     window.RaginaMemory.logVoiceTurn(myNumber, 'ragina', r).catch(() => {});
                 }
@@ -924,7 +930,6 @@ function togglePw(inputId, btn) {
                 document.getElementById('callSubstatus').textContent = 'Speaking…';
                 logMsg('ragina', ans);
 
-                // 🧠 Log to Sheet
                 if (window.RaginaMemory && window.RaginaMemory.logVoiceTurn && myNumber) {
                     window.RaginaMemory.logVoiceTurn(myNumber, 'ragina', ans).catch(() => {});
                 }
