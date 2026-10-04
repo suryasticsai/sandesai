@@ -1,17 +1,22 @@
 // ═══════════════════════════════════════════════════════════════
-// Sandesai Apps Script · v14-security
+// Sandesai Apps Script · v18-country-tz-fixes
 //
-// New vs v13:
-//   • TOTP lock after 3 wrong codes (15 min)
-//   • requestTotpUnlock / unlockTotp — email 6-digit unlock
-//   • disableTotp / enableTotp — user can turn TOTP off
-//   • setPassword — TOTP-only users can add a password
-//   • logoutAllDevices — invalidate every session
+// Fixes in this version (vs v17):
+//   1. Country code support (E.164 phones, per-country validation)
+//   2. Timezone-aware TOTP codes (client offset + country fallback)
+//   3. Salted + iterated password hashing (auto-upgrades legacy)
+//   4. OTP-verified token is truly consumed (no replay)
+//   5. Client-claimed "google" authMethod is rejected without idToken
+//   6. deleteAccount requires a valid session token
+//   7. Username checked BEFORE consuming OTP token
+//   8. Secrets read from Script Properties (with safe fallback)
+//   9. registerSession matches (phone, hash) pair
+//  10. Country + Salt columns added to Sheet1 (migration on first run)
 // ═══════════════════════════════════════════════════════════════
 
-const CODE_VERSION = 'v14-security';
+const CODE_VERSION = 'v18-country-tz-fixes';
 
-const APP_VERSION     = '0.9';
+const APP_VERSION     = '1.3';
 const MIN_APP_VERSION = '0.5';
 const UPDATE_MESSAGE  = 'A new version of Sandesai is available. Please refresh to continue.';
 
@@ -23,18 +28,41 @@ const OTP_SHEET           = 'OTPs';
 const PUSH_TOKENS_SHEET   = 'PushTokens';
 const SESSIONS_SHEET      = 'Sessions';
 
-const REG_HEADERS     = ['Name', 'Username', 'Phone', 'Email', 'Created At', 'Last Login', 'UID', 'Status', 'Auth Method', 'Password Hash', 'Time Offset'];
+const REG_HEADERS = [
+    'Name', 'Username', 'Phone', 'Email', 'Created At', 'Last Login',
+    'UID', 'Status', 'Auth Method', 'Password Hash', 'Time Offset',
+    'Country Code', 'Salt'
+];
 const OTP_HEADERS     = ['Timestamp', 'Phone', 'Email', 'Code', 'Expires At', 'Email Status', 'Error', 'Verified At'];
 const SESSION_HEADERS = ['Phone', 'Token Hash', 'Device', 'Created', 'Last Seen', 'Expires'];
 
-const NOTIFY_EMAIL   = 'sandesai@gmail.com';
-const SECRET         = 'sandesai-webhook-2026';
-const ADMIN_PASSWORD = 'sandesai-admin-2026';
+const NOTIFY_EMAIL = 'sandesai@gmail.com';
 
-const PHONE_RE    = /^[6-9]\d{9}$/;
-const PHONE_LOOSE = /^\d{10}$/;
-const EMAIL_RE    = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const USERNAME_RE = /^[a-zA-Z0-9_.]{3,20}$/;
+// 🔐 Set these in Apps Script → Project Settings → Script Properties.
+// Fallbacks keep the current deployment alive until you migrate them.
+const _PROPS = PropertiesService.getScriptProperties();
+const SECRET         = _PROPS.getProperty('SECRET')         || 'sandesai-webhook-2026';
+const ADMIN_PASSWORD = _PROPS.getProperty('ADMIN_PASSWORD') || 'sandesai-admin-2026';
+
+const PHONE_E164_RE  = /^\d{8,15}$/;
+const INDIA_LOCAL_RE = /^[6-9]\d{9}$/;
+const PHONE_LOOSE    = /^\d{8,15}$/;
+const EMAIL_RE       = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const USERNAME_RE    = /^[a-zA-Z0-9_.]{3,20}$/;
+
+// Country calling code → timezone offset (minutes ahead of UTC).
+// Used only as fallback when the client doesn't send clientTimezoneOffset.
+const COUNTRY_TZ_OFFSET = {
+    '91': 330,  '1': -300, '44': 0,    '61': 600,  '971': 240, '65': 480,
+    '60': 480,  '81': 540, '82': 540,  '86': 480,  '49': 60,   '33': 60,
+    '39': 60,   '34': 60,  '7': 180,   '55': -180, '27': 120,  '234': 60,
+    '254': 180, '880': 360,'92': 300,  '94': 330,  '977': 345, '975': 360,
+    '960': 300, '95': 390, '66': 420,  '84': 420,  '62': 420,  '63': 480,
+    '852': 480, '886': 480,'64': 720,  '20': 120,  '966': 180, '972': 120,
+    '90': 180,  '380': 120,'48': 60,   '31': 60,   '32': 60,   '41': 60,
+    '43': 60,   '46': 60,  '47': 60,   '45': 60,   '358': 120, '353': 0,
+    '351': 0,   '30': 120, '420': 60,  '36': 60
+};
 
 const OTP_TTL_MS          = 10 * 60 * 1000;
 const OTP_VERIFIED_TTL_MS = 30 * 60 * 1000;
@@ -43,17 +71,33 @@ const OTP_RATE_PER_HR     = 5;
 const OTP_MIN_GAP_MS      = 30 * 1000;
 const OTP_RETENTION_DAYS  = 7;
 
-const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const PENDING_OFFSET_TTL_MS = 60 * 60 * 1000;
+const SESSION_TTL_MS        = 90 * 24 * 60 * 60 * 1000;
 
-// TOTP lock config
 const TOTP_MAX_FAILS   = 3;
-const TOTP_LOCK_MS     = 15 * 60 * 1000;   // 15 min
-const TOTP_FAIL_WINDOW = 15 * 60 * 1000;   // window in which fails accumulate
+const TOTP_LOCK_MS     = 15 * 60 * 1000;
+const TOTP_FAIL_WINDOW = 15 * 60 * 1000;
 
-const REQUIRE_OTP_FOR_REGISTRATION = false;
-const SCHEMA_FLAG = 'schema_v13_auth';
+const PBKDF2_ITERATIONS = 1000;
+const SCHEMA_FLAG = 'schema_v14_country_tz';
+const LOGO_URL    = 'https://suryasticsai.github.io/sandesai/sandesai-logo.png';
+const SIGN_URL    = 'https://suryasticsai.github.io/sandesai/Author-sign.png';
+const APP_URL     = 'https://suryasticsai.github.io/sandesai/';
+const LETTER_URL  = 'https://suryasticsai.github.io/sandesai/welcome-letter.html';
 
-const LOGO_URL = 'https://suryasticsai.github.io/sandesai/sandesai-logo.png';
+// ═══════════════════════════════════════════════════════════════
+// CORS PREFLIGHT
+// ═══════════════════════════════════════════════════════════════
+function doOptions(e) {
+    return ContentService.createTextOutput('')
+        .setMimeType(ContentService.MimeType.TEXT)
+        .setHeaders({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Max-Age': '86400'
+        });
+}
 
 // ═══════════════════════════════════════════════════════════════
 function doPost(e) {
@@ -67,10 +111,11 @@ function doPost(e) {
         catch (err) { return jsonResponse({ ok: false, version: CODE_VERSION, error: 'invalid json' }); }
 
         switch (body.type) {
-            case 'conversation':         return logConversation(body);
+            case 'sendRegOtp':           return sendRegOtp(body);
             case 'sendOtp':              return sendOtp(body);
             case 'verifyOtp':            return verifyOtp(body);
             case 'checkOtp':             return verifyOtp(body);
+            case 'conversation':         return logConversation(body);
             case 'checkAvailability':    return checkAvailability(body);
             case 'checkLogin':           return checkLogin(body);
             case 'login':                return login(body);
@@ -137,10 +182,18 @@ function doGet(e) {
         });
     }
 
-    if (type === 'sendotp') return sendOtp({ secret: params.secret, phone: params.phone, email: params.email });
-    if (type === 'checkotp') return _verifyOtpCore(String(params.phone || '').trim(), String(params.code || '').trim());
+    if (type === 'sendotp') return sendOtp({
+        secret: params.secret, phone: params.phone, email: params.email,
+        countryCode: params.countryCode
+    });
+    if (type === 'checkotp') return _verifyOtpCore(
+        normalizePhone_(params.countryCode, params.phone),
+        String(params.code || '').trim()
+    );
 
-    if (type === 'checkavailability') return checkAvailability({ phone: params.phone, username: params.username });
+    if (type === 'checkavailability') return checkAvailability({
+        phone: params.phone, username: params.username, countryCode: params.countryCode
+    });
     if (type === 'checkuser') {
         const uid   = String(params.uid || '').trim();
         const email = String(params.email || '').trim();
@@ -150,7 +203,7 @@ function doGet(e) {
             registeredUsername: existing ? existing.username : '' });
     }
     if (type === 'userconversations') {
-        const phone = String(params.phone || '').trim();
+        const phone = normalizePhone_(params.countryCode, params.phone);
         const limit = Math.min(parseInt(params.limit || '20', 10) || 20, 100);
         if (!phone) return jsonResponse({ ok: false, version: CODE_VERSION, error: 'phone required' });
         return jsonResponse({ ok: true, version: CODE_VERSION, conversations: readUserConversations(phone, limit) });
@@ -175,6 +228,71 @@ function doGet(e) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// COUNTRY / PHONE / TZ HELPERS
+// ═══════════════════════════════════════════════════════════════
+function normalizePhone_(countryCode, localPhone) {
+    const cc = String(countryCode || '91').replace(/\D/g, '');
+    let p = String(localPhone || '').replace(/\D/g, '');
+    p = p.replace(/^0+/, '');
+    return cc + p;
+}
+
+function validatePhoneForCountry_(countryCode, localPhone) {
+    const cc = String(countryCode || '').replace(/\D/g, '');
+    const p  = String(localPhone || '').replace(/\D/g, '').replace(/^0+/, '');
+    if (!cc) return { ok: false, error: 'missing_country', message: 'Select a country.' };
+    if (!p)  return { ok: false, error: 'missing_phone',   message: 'Enter your phone number.' };
+    if (cc === '91' && !INDIA_LOCAL_RE.test(p)) {
+        return { ok: false, error: 'invalid_phone_in',
+                 message: 'Indian mobile must be 10 digits starting 6–9.' };
+    }
+    const full = cc + p;
+    if (!PHONE_E164_RE.test(full)) {
+        return { ok: false, error: 'invalid_phone',
+                 message: 'Phone is not valid for country +' + cc + '.' };
+    }
+    return { ok: true, full: full, countryCode: cc };
+}
+
+function resolveTimezoneOffsetMin_(clientOffsetMin, countryCode) {
+    if (typeof clientOffsetMin === 'number' && isFinite(clientOffsetMin)
+        && clientOffsetMin >= -840 && clientOffsetMin <= 840) {
+        return clientOffsetMin;
+    }
+    const cc = String(countryCode || '91').replace(/\D/g, '');
+    return COUNTRY_TZ_OFFSET[cc] || 0;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PASSWORD HASHING (salted + iterated, auto-upgrades legacy)
+// ═══════════════════════════════════════════════════════════════
+function generateSalt_() {
+    return Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+}
+
+function legacyHashPassword_(phone, password) {
+    const bytes = Utilities.computeDigest(
+        Utilities.DigestAlgorithm.SHA_256,
+        SECRET + '|pw|' + phone + '|' + password
+    );
+    return Utilities.base64Encode(bytes);
+}
+
+function hashPassword_(phone, password, salt) {
+    if (!salt) return legacyHashPassword_(phone, password); // backward compat
+    let sig = Utilities.computeHmacSha256Signature(salt + '|' + password, SECRET);
+    for (let i = 0; i < PBKDF2_ITERATIONS; i++) {
+        sig = Utilities.computeHmacSha256Signature(sig, SECRET);
+    }
+    return Utilities.base64Encode(sig);
+}
+
+function verifyPassword_(phone, password, storedHash, salt) {
+    if (!storedHash) return false;
+    return hashPassword_(phone, password, salt) === storedHash;
+}
+
+// ═══════════════════════════════════════════════════════════════
 function ensureSchema_() {
     try {
         const props = PropertiesService.getScriptProperties();
@@ -195,11 +313,15 @@ function migrateRegistrationsSheet_() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(REGISTRATIONS_SHEET);
     if (!sheet) return;
+
     const data = sheet.getDataRange().getValues();
     const headers = (data[0] || []).map(function (h) { return String(h || '').trim(); });
-    if (headers[0] === 'Name' && headers[8] === 'Auth Method' && headers[9] === 'Password Hash') return;
 
-    const hasData = data.length > 1 && data.slice(1).some(function (r) { return String(r[2] || '').trim(); });
+    if (headers[0] === 'Name' && headers[11] === 'Country Code' && headers[12] === 'Salt') return;
+
+    const hasData = data.length > 1 && data.slice(1).some(function (r) {
+        return String(r[2] || '').trim();
+    });
     if (!hasData) {
         sheet.clearContents();
         sheet.getRange(1, 1, 1, REG_HEADERS.length).setValues([REG_HEADERS]);
@@ -210,34 +332,55 @@ function migrateRegistrationsSheet_() {
     const order = [];
     for (let i = 1; i < data.length; i++) {
         const r = data[i];
-        const phone = String(r[2] || '').trim();
-        if (!phone) continue;
+        const rawPhone = String(r[2] || '').replace(/\D/g, '');
+        if (!rawPhone) continue;
+
+        let country = '91', phone = rawPhone;
+        if (rawPhone.length === 10) {
+            phone = '91' + rawPhone;
+        } else if (rawPhone.length > 10 && rawPhone.indexOf('91') === 0) {
+            phone = rawPhone;
+        }
+
         const createdMs = toMillis_(r[4] || r[3]);
         const loginMs   = toMillis_(r[5] || r[3]);
-        const name = String(r[0] || '').trim();
+        const name  = String(r[0] || '').trim();
         const uname = String(r[1] || '').trim();
-        const uid = String(r[6] || r[4] || '').trim();
+        const uid   = String(r[6] || r[4] || '').trim();
         const email = String(r[3] && r[3].indexOf('@') !== -1 ? r[3] : '').trim();
+        const method = headers[8] === 'Auth Method'   ? String(r[8] || 'totp') : 'totp';
+        const hash   = headers[9] === 'Password Hash' ? String(r[9] || '')     : '';
+        const offset = headers[10] === 'Time Offset'  ? (Number(r[10]) || 0)   : 0;
+        const salt   = headers[12] === 'Salt'         ? String(r[12] || '')    : '';
+
         if (!byPhone[phone]) {
-            byPhone[phone] = { name: name, username: uname, phone: phone, email: email,
+            byPhone[phone] = {
+                name: name, username: uname, phone: phone, email: email,
                 createdAt: createdMs, lastLogin: loginMs, uid: uid,
-                status: 'active', authMethod: 'totp', passwordHash: '', timeOffset: 0 };
+                status: 'active', authMethod: method, passwordHash: hash,
+                timeOffset: offset, countryCode: country, salt: salt
+            };
             order.push(phone);
         } else {
             const rec = byPhone[phone];
-            if (name) rec.name = name;
+            if (name)  rec.name = name;
             if (uname) rec.username = uname;
-            if (uid) rec.uid = uid;
+            if (uid)   rec.uid = uid;
             if (email) rec.email = email;
+            if (hash)  { rec.passwordHash = hash; rec.authMethod = method; }
+            if (offset) rec.timeOffset = offset;
         }
     }
+
     const rows = order.map(function (phone) {
         const u = byPhone[phone];
         return [u.name, u.username, u.phone, u.email,
             u.createdAt ? new Date(u.createdAt).toISOString() : '',
             u.lastLogin ? new Date(u.lastLogin).toISOString() : '',
-            u.uid, u.status, u.authMethod, u.passwordHash, u.timeOffset];
+            u.uid, u.status, u.authMethod, u.passwordHash, u.timeOffset,
+            u.countryCode, u.salt];
     });
+
     sheet.clearContents();
     sheet.getRange(1, 1, 1, REG_HEADERS.length).setValues([REG_HEADERS]);
     if (rows.length) sheet.getRange(2, 1, rows.length, REG_HEADERS.length).setValues(rows);
@@ -269,21 +412,16 @@ function ensureSessionsSheet_() {
 // ═══════════════════════════════════════════════════════════════
 // AUTH HELPERS
 // ═══════════════════════════════════════════════════════════════
-function hashPassword_(phone, password) {
-    const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SECRET + '|pw|' + phone + '|' + password);
-    return Utilities.base64Encode(bytes);
-}
-
 function generateTimeOffset_() {
     const choices = [-9,-8,-7,-6,-5,-4,-3,-2,-1,1,2,3,4,5,6,7,8,9];
     return choices[Math.floor(Math.random() * choices.length)];
 }
 
-function formatTimeCode_(date, offsetMinutes) {
+function formatTimeCode_(date, offsetMinutes, tzOffsetMin) {
     const d = new Date(date.getTime());
-    d.setMinutes(d.getMinutes() + (offsetMinutes || 0));
-    let h = d.getHours();
-    const m = d.getMinutes();
+    d.setUTCMinutes(d.getUTCMinutes() + (tzOffsetMin || 0) + (offsetMinutes || 0));
+    let h = d.getUTCHours();
+    const m = d.getUTCMinutes();
     if (h === 0) h = 12; else if (h > 12) h -= 12;
     return String(h).padStart(2, '0') + String(m).padStart(2, '0');
 }
@@ -304,7 +442,6 @@ function buildCrypticHint_(offset) {
     return 'You are ' + n + ' ' + s + ' behind your time. Catch up wisely.';
 }
 
-// ── TOTP lock state (transient, in Script Properties) ──
 function getTotpFailState_(phone) {
     const props = PropertiesService.getScriptProperties();
     const raw = props.getProperty('totpfail_' + phone);
@@ -326,7 +463,6 @@ function isTotpLocked_(phone) {
     return s.lockedUntil && s.lockedUntil > Date.now() ? s : null;
 }
 
-// ── Session verification helper ──
 function verifySessionForPhone_(phone, token) {
     if (!phone || !token) return false;
     const sheet = getSheet(SESSIONS_SHEET);
@@ -342,13 +478,219 @@ function verifySessionForPhone_(phone, token) {
     return false;
 }
 
+function consumePendingOffset_(phone) {
+    const props = PropertiesService.getScriptProperties();
+    const key = 'pendingoffset_' + phone;
+    const raw = props.getProperty(key);
+    if (!raw) return 0;
+    let result = 0;
+    try {
+        const p = JSON.parse(raw);
+        if (p && p.expiresAt && Date.now() < p.expiresAt && typeof p.offset === 'number' && p.offset !== 0) {
+            result = p.offset;
+        }
+    } catch (e) {}
+    props.deleteProperty(key);
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// REGISTRATION OTP
+// ═══════════════════════════════════════════════════════════════
+function sendRegOtp(body) {
+    if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
+
+    const country = String(body.countryCode || '91').replace(/\D/g, '');
+    const pv = validatePhoneForCountry_(country, body.phone);
+    if (!pv.ok) return jsonResponse({ ok: false, error: pv.error, message: pv.message });
+    const phone = pv.full;
+
+    const email = String(body.email || '').trim();
+    const name  = String(body.name  || '').trim();
+    if (!EMAIL_RE.test(email)) return jsonResponse({ ok: false, error: 'invalid_email', message: 'Enter a valid email.' });
+
+    const props   = PropertiesService.getScriptProperties();
+    const rateKey = 'otprate_' + phone;
+    const now     = Date.now();
+    const code    = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = now + OTP_TTL_MS;
+    const offset    = generateTimeOffset_();
+
+    const gate = withLock_(function () {
+        const rawRate = props.getProperty(rateKey);
+        let rate = rawRate ? JSON.parse(rawRate) : { count: 0, resetAt: 0, lastAt: 0 };
+        if (now > rate.resetAt) rate = { count: 0, resetAt: now + 60 * 60 * 1000, lastAt: 0 };
+        if (rate.lastAt && now - rate.lastAt < OTP_MIN_GAP_MS) {
+            const s = Math.ceil((OTP_MIN_GAP_MS - (now - rate.lastAt)) / 1000);
+            return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's before requesting another code.' };
+        }
+        if (rate.count >= OTP_RATE_PER_HR) {
+            const m = Math.ceil((rate.resetAt - now) / 60000);
+            return { ok: false, error: 'too_many_requests', message: 'Try again in ' + m + ' min.' };
+        }
+        props.setProperty('otp_' + phone, JSON.stringify({
+            hash: hashCode_(phone, code), email: email, expiresAt: expiresAt, tries: 0, createdAt: now
+        }));
+        props.setProperty('otpemail_' + phone, email);
+        props.setProperty('pendingoffset_' + phone, JSON.stringify({
+            offset: offset, expiresAt: now + PENDING_OFFSET_TTL_MS
+        }));
+        rate.count++; rate.lastAt = now;
+        props.setProperty(rateKey, JSON.stringify(rate));
+        return { ok: true };
+    });
+    if (!gate.ok) return jsonResponse(gate);
+
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        let sheet = ss.getSheetByName(OTP_SHEET);
+        if (!sheet) {
+            sheet = ss.insertSheet(OTP_SHEET);
+            sheet.getRange(1, 1, 1, OTP_HEADERS.length).setValues([OTP_HEADERS]);
+        }
+        sheet.appendRow([new Date().toISOString(), phone, email, '••••••',
+                         new Date(expiresAt).toISOString(), 'pending', '', '']);
+    } catch (e) {}
+
+    const emailResult = buildAndSendRegOtpEmail_(email, code, name || 'there', expiresAt, offset);
+
+    if (!emailResult.ok) {
+        withLock_(function () {
+            try {
+                const raw = props.getProperty(rateKey);
+                if (raw) {
+                    const rate = JSON.parse(raw);
+                    rate.count = Math.max(0, rate.count - 1);
+                    rate.lastAt = 0;
+                    props.setProperty(rateKey, JSON.stringify(rate));
+                }
+                props.deleteProperty('otp_' + phone);
+                props.deleteProperty('pendingoffset_' + phone);
+            } catch (e) {}
+        });
+        return jsonResponse({ ok: false, error: 'email_failed', message: 'Could not send email: ' + emailResult.error });
+    }
+
+    const parts = email.split('@');
+    const masked = parts[0].slice(0, 2) + '***@' + parts[1];
+    return jsonResponse({
+        ok: true, version: CODE_VERSION, sentTo: masked,
+        expiresAt: expiresAt, cooldownSeconds: Math.ceil(OTP_MIN_GAP_MS / 1000)
+    });
+}
+
+function buildAndSendRegOtpEmail_(email, code, userName, expiresAt, offset) {
+    const displayName = escapeHtml_(userName);
+    const minutesLeft = Math.ceil((expiresAt - Date.now()) / 60000);
+    const abs = Math.abs(offset);
+    const stepsText = abs === 1 ? '1 step' : abs + ' steps';
+    const direction = offset > 0 ? 'ahead of' : 'behind';
+    const offsetLabel = (offset > 0 ? '+' : '') + offset;
+
+    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a 0%,#0a0818 100%);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+
+<tr><td align="center" style="padding:40px 32px 8px 32px;">
+<img src="${LOGO_URL}" alt="Sandesai" width="88" height="88" style="width:88px;height:88px;border-radius:50%;border:2px solid rgba(139,92,246,.4);box-shadow:0 0 60px rgba(139,92,246,.5);display:block;margin:0 auto;" />
+<div style="margin-top:22px;font-size:24px;font-weight:700;color:#eef0f5;">Hey ${displayName}, here's your code</div>
+<div style="margin-top:8px;font-size:14px;color:#8a98b5;">Verify your email to finish signing up</div>
+</td></tr>
+
+<tr><td align="center" style="padding:26px 32px 8px 32px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.35);border-radius:20px;">
+<tr><td align="center" style="padding:24px 20px 4px 20px;">
+<div style="font-size:11px;letter-spacing:.20em;text-transform:uppercase;color:#a78bfa;font-weight:700;">Your verification code</div>
+</td></tr>
+<tr><td align="center" style="padding:14px 20px 8px 20px;">
+<div style="display:inline-block;font-size:48px;font-weight:800;letter-spacing:14px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;padding-left:14px;-webkit-user-select:all;user-select:all;-moz-user-select:all;-ms-user-select:all;cursor:pointer;">${code}</div>
+</td></tr>
+<tr><td align="center" style="padding:6px 20px 20px 20px;">
+<div style="display:inline-block;font-size:12px;color:#c4b5fd;background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.35);border-radius:20px;padding:6px 14px;">
+⧉ Tap the code above to copy
+</div>
+</td></tr>
+</table>
+</td></tr>
+
+<tr><td align="center" style="padding:14px 32px 8px 32px;">
+<div style="display:inline-block;font-size:12px;color:#6ee7ff;background:rgba(110,231,255,.10);border:1px solid rgba(110,231,255,.25);border-radius:20px;padding:4px 12px;">● expires in ${minutesLeft} minutes</div>
+</td></tr>
+
+<tr><td style="padding:28px 32px 8px 32px;">
+<div style="font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#6ee7ff;font-weight:600;margin-bottom:12px;">What is a "time-based token"?</div>
+<div style="font-size:14px;color:#c5cfe0;line-height:1.75;">
+Sandesai replaces the password you'd normally type with a <b style="color:#c4b5fd;">live code based on time</b>. Here's how it works:
+</div>
+<ol style="font-size:14px;color:#c5cfe0;line-height:1.8;margin:14px 0 0;padding-left:22px;">
+<li>You have a <b style="color:#c4b5fd;">secret offset</b> — a tiny adjustment only you know.</li>
+<li>The app reads the current time on your device.</li>
+<li>It nudges that time by your offset, then writes it as <b style="color:#c4b5fd;">HHMM</b> on a 12-hour clock.</li>
+<li>That 4-digit result is your sign-in code — and it changes every single minute.</li>
+</ol>
+</td></tr>
+
+<tr><td style="padding:18px 32px 8px 32px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(110,231,255,.06);border-radius:16px;border:1px solid rgba(110,231,255,.22);">
+<tr><td style="padding:18px 20px;">
+<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#6ee7ff;font-weight:600;margin-bottom:10px;">Your secret offset</div>
+<div style="font-size:20px;font-weight:800;color:#eef0f5;font-family:'SF Mono',Menlo,monospace;margin-bottom:8px;">${offsetLabel}</div>
+<div style="font-size:13px;color:#8a98b5;line-height:1.65;">
+You are <b style="color:#c4b5fd;">${stepsText} ${direction}</b> your time.
+When you sign in, take the current time on your device and move it forward or back by ${stepsText}. Then write the result as HHMM — that's your code.
+</div>
+<div style="margin-top:14px;font-size:12px;color:#6b7a96;line-height:1.6;">
+🔒 <b style="color:#a5b3d0;">Keep this private.</b> Anyone who sees your offset and knows your device time can generate your code.
+</div>
+</td></tr>
+</table>
+</td></tr>
+
+<tr><td style="padding:20px 32px 8px 32px;">
+<div style="font-size:13px;color:#6b7a96;line-height:1.65;">
+You'll also set a password during signup — that's your backup if you ever forget the offset. You can change the offset anytime from Settings once you're in.
+</div>
+</td></tr>
+
+<tr><td align="center" style="padding:26px 32px 8px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">Return to Sandesai →</a>
+</td></tr>
+
+<tr><td align="center" style="padding:32px 32px 36px 32px;">
+<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
+<img src="${LOGO_URL}" alt="Sandesai" width="36" height="36" style="width:36px;height:36px;border-radius:50%;border:1px solid rgba(139,92,246,.3);display:block;margin:0 auto 10px;" />
+<div style="font-size:14px;font-weight:600;color:#a78bfa;text-align:center;">Sandesai</div>
+<div style="font-size:12px;color:#5a6885;margin-top:8px;line-height:1.6;text-align:center;">Private messenger · Built with care<br>If you didn't sign up, you can ignore this email.</div>
+</td></tr>
+
+</table>
+<div style="max-width:520px;margin-top:20px;font-size:11px;color:#3d4a5f;text-align:center;">© ${new Date().getFullYear()} Sandesai</div>
+</td></tr></table></body></html>`.trim();
+
+    try {
+        MailApp.sendEmail({
+            to: email,
+            subject: '✉️ Verify your email — Sandesai',
+            htmlBody: htmlBody,
+            name: 'Sandesai'
+        });
+        console.log('📧 Reg OTP sent to', email);
+        return { ok: true };
+    } catch (e) {
+        console.error('sendRegOtp email failed:', e);
+        return { ok: false, error: String(e).slice(0, 250) };
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // LOGIN
 // ═══════════════════════════════════════════════════════════════
 function checkLogin(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for this number. Please register first.' });
 
@@ -359,6 +701,7 @@ function checkLogin(body) {
     if (!methods.length) methods.push('totp');
 
     const lock = isTotpLocked_(phone);
+    const tzOffset = resolveTimezoneOffsetMin_(null, user.countryCode);
 
     return jsonResponse({
         ok: true,
@@ -366,6 +709,8 @@ function checkLogin(body) {
         methods: methods,
         name: user.name || '',
         username: user.username || '',
+        countryCode: user.countryCode,
+        serverTimezoneOffset: tzOffset,
         hint: methods.indexOf('totp') !== -1 ? buildCrypticHint_(user.timeOffset) : '',
         totpLocked: !!lock,
         lockedUntil: lock ? lock.lockedUntil : 0,
@@ -376,49 +721,43 @@ function checkLogin(body) {
 
 function login(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone  = normalizePhone_(body.countryCode, body.phone);
     const method = String(body.method || 'totp').toLowerCase();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone.' });
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account.' });
 
     if (method === 'totp') {
-        // Lock check
         const lock = isTotpLocked_(phone);
         if (lock) {
             const rem = Math.max(0, Math.ceil((lock.lockedUntil - Date.now()) / 1000));
             return jsonResponse({
-                ok: false,
-                error: 'totp_locked',
+                ok: false, error: 'totp_locked',
                 message: 'Too many wrong codes.',
                 lockedUntil: lock.lockedUntil,
                 remainingSeconds: rem,
                 hasPassword: !!user.passwordHash
             });
         }
-
-        // Is TOTP disabled?
         if (user.authMethod === 'password') {
-            return jsonResponse({ ok: false, error: 'totp_disabled', message: 'Time code is disabled for this account.', hasPassword: true });
+            return jsonResponse({ ok: false, error: 'totp_disabled', message: 'Time code is disabled.', hasPassword: true });
         }
 
         const code = String(body.code || '').trim();
-        if (!/^\d{4}$/.test(code)) {
-            return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 4 digits.' });
-        }
+        if (!/^\d{4}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 4 digits.' });
 
         const clientTime = Number(body.clientTime) || Date.now();
-        const serverNow = Date.now();
+        const serverNow  = Date.now();
         if (Math.abs(clientTime - serverNow) > 3 * 60 * 1000) {
-            return jsonResponse({ ok: false, error: 'clock_skew', message: 'Your device time looks wrong. Check your date & time settings.' });
+            return jsonResponse({ ok: false, error: 'clock_skew', message: 'Check your date & time settings.' });
         }
 
-        const expected     = formatTimeCode_(new Date(clientTime), user.timeOffset || 0);
-        const expectedPrev = formatTimeCode_(new Date(clientTime - 60000), user.timeOffset || 0);
-        const expectedNext = formatTimeCode_(new Date(clientTime + 60000), user.timeOffset || 0);
+        const tzOffset = resolveTimezoneOffsetMin_(Number(body.clientTimezoneOffset), user.countryCode);
+        const expected     = formatTimeCode_(new Date(clientTime),          user.timeOffset || 0, tzOffset);
+        const expectedPrev = formatTimeCode_(new Date(clientTime - 60000),  user.timeOffset || 0, tzOffset);
+        const expectedNext = formatTimeCode_(new Date(clientTime + 60000),  user.timeOffset || 0, tzOffset);
 
         if (code !== expected && code !== expectedPrev && code !== expectedNext) {
-            // Wrong code — increment fail counter
             const state = getTotpFailState_(phone);
             const now = Date.now();
             if (!state.firstFailAt || now - state.firstFailAt > TOTP_FAIL_WINDOW) {
@@ -426,13 +765,11 @@ function login(body) {
                 state.firstFailAt = now;
             }
             state.count = (state.count || 0) + 1;
-
             if (state.count >= TOTP_MAX_FAILS) {
                 state.lockedUntil = now + TOTP_LOCK_MS;
                 setTotpFailState_(phone, state);
                 return jsonResponse({
-                    ok: false,
-                    error: 'totp_locked',
+                    ok: false, error: 'totp_locked',
                     message: 'Too many wrong codes. Use your password or recover via email.',
                     lockedUntil: state.lockedUntil,
                     remainingSeconds: Math.ceil(TOTP_LOCK_MS / 1000),
@@ -441,24 +778,31 @@ function login(body) {
             }
             setTotpFailState_(phone, state);
             return jsonResponse({
-                ok: false,
-                error: 'wrong_code',
+                ok: false, error: 'wrong_code',
                 triesLeft: TOTP_MAX_FAILS - state.count,
                 message: 'Wrong code. ' + (TOTP_MAX_FAILS - state.count) + ' tries left.',
                 hasPassword: !!user.passwordHash
             });
         }
-
-        // Success — clear fail counter
         clearTotpFailState_(phone);
     } else if (method === 'password') {
         const password = String(body.password || '');
         if (!password) return jsonResponse({ ok: false, error: 'invalid_password', message: 'Password required.' });
-        if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password', message: 'No password set on this account.' });
-        if (hashPassword_(phone, password) !== user.passwordHash) {
+        if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password', message: 'No password set.' });
+        if (!verifyPassword_(phone, password, user.passwordHash, user.salt)) {
             return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong password.' });
         }
-        // Password success also clears TOTP lock
+        if (!user.salt) {
+            try {
+                const newSalt = generateSalt_();
+                const newHash = hashPassword_(phone, password, newSalt);
+                const sheet = getSheet(REGISTRATIONS_SHEET);
+                sheet.getRange(user.row, 10).setValue(newHash);
+                sheet.getRange(user.row, 13).setValue(newSalt);
+                user.salt = newSalt; user.passwordHash = newHash;
+                console.log('🔐 Upgraded legacy password hash for ' + phone);
+            } catch (e) { console.error('hash upgrade failed:', e); }
+        }
         clearTotpFailState_(phone);
     } else {
         return jsonResponse({ ok: false, error: 'invalid_method' });
@@ -470,27 +814,25 @@ function login(body) {
     } catch (e) {}
 
     return jsonResponse({
-        ok: true,
-        version: CODE_VERSION,
+        ok: true, version: CODE_VERSION,
         user: {
             name: user.name, username: user.username, phone: user.phone,
-            email: user.email, uid: user.uid, authMethod: method
+            email: user.email, uid: user.uid, authMethod: method,
+            countryCode: user.countryCode
         }
     });
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TOTP UNLOCK (email 6-digit)
+// TOTP UNLOCK
 // ═══════════════════════════════════════════════════════════════
 function requestTotpUnlock(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const user = findUserByPhone(phone);
-    if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account.' });
-    if (!user.email || !EMAIL_RE.test(user.email)) {
-        return jsonResponse({ ok: false, error: 'no_email', message: 'No email on file.' });
-    }
+    if (!user) return jsonResponse({ ok: false, error: 'not_found' });
+    if (!user.email || !EMAIL_RE.test(user.email)) return jsonResponse({ ok: false, error: 'no_email' });
 
     const props = PropertiesService.getScriptProperties();
     const rateKey = 'totpunlockrate_' + phone;
@@ -506,13 +848,8 @@ function requestTotpUnlock(body) {
             const s = Math.ceil((60 * 1000 - (now - rate.lastAt)) / 1000);
             return { ok: false, error: 'too_soon', message: 'Wait ' + s + 's.' };
         }
-        if (rate.count >= 3) {
-            const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many', message: 'Too many requests. Try in ' + m + ' min.' };
-        }
-        props.setProperty('totpunlock_' + phone, JSON.stringify({
-            hash: hashCode_(phone, code), expiresAt: expiresAt, tries: 0
-        }));
+        if (rate.count >= 3) return { ok: false, error: 'too_many' };
+        props.setProperty('totpunlock_' + phone, JSON.stringify({ hash: hashCode_(phone, code), expiresAt: expiresAt, tries: 0 }));
         rate.count++; rate.lastAt = now;
         props.setProperty(rateKey, JSON.stringify(rate));
         return { ok: true };
@@ -529,7 +866,7 @@ function requestTotpUnlock(body) {
         });
     } catch (e) {
         props.deleteProperty('totpunlock_' + phone);
-        return jsonResponse({ ok: false, error: 'email_failed', message: 'Could not send unlock email.' });
+        return jsonResponse({ ok: false, error: 'email_failed' });
     }
 
     const parts = user.email.split('@');
@@ -539,32 +876,30 @@ function requestTotpUnlock(body) {
 
 function unlockTotp(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const code = String(body.code || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (!/^\d{6}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code', message: 'Code must be 6 digits.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!/^\d{6}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code' });
 
     return withLock_(function () {
         const props = PropertiesService.getScriptProperties();
         const key = 'totpunlock_' + phone;
         const raw = props.getProperty(key);
-        if (!raw) return jsonResponse({ ok: false, error: 'no_unlock', message: 'Request a new unlock code.' });
+        if (!raw) return jsonResponse({ ok: false, error: 'no_unlock' });
         let u;
         try { u = JSON.parse(raw); }
         catch (e) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'corrupt' }); }
 
-        if (Date.now() > u.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired', message: 'Code expired.' }); }
-
+        if (Date.now() > u.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired' }); }
         if (u.hash !== hashCode_(phone, code)) {
             u.tries = (u.tries || 0) + 1;
             if (u.tries >= 5) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'too_many_attempts' }); }
             props.setProperty(key, JSON.stringify(u));
-            return jsonResponse({ ok: false, error: 'invalid_code', triesLeft: 5 - u.tries, message: 'Wrong code. ' + (5 - u.tries) + ' tries left.' });
+            return jsonResponse({ ok: false, error: 'invalid_code', triesLeft: 5 - u.tries });
         }
-
         props.deleteProperty(key);
         clearTotpFailState_(phone);
-        return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Unlocked. Try again.' });
+        return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Unlocked.' });
     });
 }
 
@@ -573,61 +908,56 @@ function unlockTotp(body) {
 // ═══════════════════════════════════════════════════════════════
 function disableTotp(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     const password = String(body.password || '');
     const newPassword = String(body.newPassword || '');
 
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session', message: 'Sign in again.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
 
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (user.authMethod === 'password') return jsonResponse({ ok: false, error: 'already_disabled', message: 'Time code is already off.' });
+    if (user.authMethod === 'password') return jsonResponse({ ok: false, error: 'already_disabled' });
 
-    // Must have or be setting a password
     let finalHash = user.passwordHash;
+    let finalSalt = user.salt;
+
     if (finalHash) {
-        if (!password) return jsonResponse({ ok: false, error: 'password_required', message: 'Enter your password to confirm.' });
-        if (hashPassword_(phone, password) !== finalHash) {
-            return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong password.' });
+        if (!password) return jsonResponse({ ok: false, error: 'password_required' });
+        if (!verifyPassword_(phone, password, finalHash, finalSalt)) {
+            return jsonResponse({ ok: false, error: 'wrong_password' });
         }
     } else {
-        // No password yet — require newPassword
-        if (!newPassword || newPassword.length < 6) {
-            return jsonResponse({ ok: false, error: 'new_password_required', message: 'Set a password first (at least 6 characters).' });
-        }
-        finalHash = hashPassword_(phone, newPassword);
+        if (!newPassword || newPassword.length < 6) return jsonResponse({ ok: false, error: 'new_password_required' });
+        finalSalt = generateSalt_();
+        finalHash = hashPassword_(phone, newPassword, finalSalt);
     }
 
     const sheet = getSheet(REGISTRATIONS_SHEET);
     sheet.getRange(user.row, 9).setValue('password');
     sheet.getRange(user.row, 10).setValue(finalHash);
+    sheet.getRange(user.row, 13).setValue(finalSalt);
     clearTotpFailState_(phone);
-
     return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Time code disabled.' });
 }
 
 function enableTotp(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     const password = String(body.password || '');
 
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session', message: 'Sign in again.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
 
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (user.authMethod === 'both' || user.authMethod === 'totp') {
-        return jsonResponse({ ok: false, error: 'already_enabled', message: 'Time code is already on.' });
-    }
-    if (!user.passwordHash) {
-        return jsonResponse({ ok: false, error: 'no_password', message: 'Set a password first.' });
-    }
-    if (!password) return jsonResponse({ ok: false, error: 'password_required', message: 'Enter your password to confirm.' });
-    if (hashPassword_(phone, password) !== user.passwordHash) {
-        return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong password.' });
+    if (user.authMethod === 'both' || user.authMethod === 'totp') return jsonResponse({ ok: false, error: 'already_enabled' });
+    if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password' });
+    if (!password) return jsonResponse({ ok: false, error: 'password_required' });
+    if (!verifyPassword_(phone, password, user.passwordHash, user.salt)) {
+        return jsonResponse({ ok: false, error: 'wrong_password' });
     }
 
     let offset = user.timeOffset || 0;
@@ -636,60 +966,53 @@ function enableTotp(body) {
     const sheet = getSheet(REGISTRATIONS_SHEET);
     sheet.getRange(user.row, 9).setValue('both');
     sheet.getRange(user.row, 11).setValue(offset);
-
-    // Re-send welcome email with the offset
-    if (user.email) {
-        const currentCode = formatTimeCode_(new Date(), offset);
-        sendTimeBasedOTPEmail(user.email, currentCode, offset, user.name, phone);
-    }
-
     return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Time code enabled.', offset: offset });
 }
 
 function setPassword(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     const newPassword = String(body.newPassword || '');
     const currentPassword = String(body.currentPassword || '');
 
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (newPassword.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
-    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session', message: 'Sign in again.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (newPassword.length < 6)     return jsonResponse({ ok: false, error: 'weak_password' });
+    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
 
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
 
     if (user.passwordHash) {
-        if (!currentPassword) return jsonResponse({ ok: false, error: 'current_required', message: 'Enter your current password.' });
-        if (hashPassword_(phone, currentPassword) !== user.passwordHash) {
-            return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong current password.' });
+        if (!currentPassword) return jsonResponse({ ok: false, error: 'current_required' });
+        if (!verifyPassword_(phone, currentPassword, user.passwordHash, user.salt)) {
+            return jsonResponse({ ok: false, error: 'wrong_password' });
         }
     }
 
-    const newHash = hashPassword_(phone, newPassword);
+    const newSalt = generateSalt_();
+    const newHash = hashPassword_(phone, newPassword, newSalt);
     const sheet = getSheet(REGISTRATIONS_SHEET);
     sheet.getRange(user.row, 10).setValue(newHash);
-    // If they were TOTP-only, upgrade to 'both'
+    sheet.getRange(user.row, 13).setValue(newSalt);
+
     const curMethod = String(sheet.getRange(user.row, 9).getValue() || 'totp');
     if (curMethod === 'totp') sheet.getRange(user.row, 9).setValue('both');
-
     return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Password saved.' });
 }
 
 // ═══════════════════════════════════════════════════════════════
-// LOGOUT ALL DEVICES
+// LOGOUT ALL, LIVE TOKEN, OFFSET
 // ═══════════════════════════════════════════════════════════════
 function logoutAllDevices(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session', message: 'Sign in again.' });
+    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
 
     const sheet = getSheet(SESSIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: true, version: CODE_VERSION, removed: 0 });
-
     const data = sheet.getDataRange().getValues();
     let removed = 0;
     for (let i = data.length - 1; i >= 1; i--) {
@@ -698,71 +1021,67 @@ function logoutAllDevices(body) {
     return jsonResponse({ ok: true, version: CODE_VERSION, removed: removed });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// LIVE TOKEN + CHANGE OFFSET
-// ═══════════════════════════════════════════════════════════════
 function getMyCode(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!token) return jsonResponse({ ok: false, error: 'no_token' });
-    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session', message: 'Session expired.' });
+    if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
 
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (user.authMethod === 'password') return jsonResponse({ ok: false, error: 'totp_disabled', message: 'Time code is disabled.' });
+    if (user.authMethod === 'password') return jsonResponse({ ok: false, error: 'totp_disabled' });
 
     const now = new Date();
-    const code = formatTimeCode_(now, user.timeOffset || 0);
-    const secondsRemaining = 60 - now.getSeconds();
-
+    const tzOffset = resolveTimezoneOffsetMin_(Number(body.clientTimezoneOffset), user.countryCode);
+    const code = formatTimeCode_(now, user.timeOffset || 0, tzOffset);
+    const secondsRemaining = 60 - now.getUTCSeconds();
     return jsonResponse({
-        ok: true,
-        version: CODE_VERSION,
-        code: code,
-        secondsRemaining: secondsRemaining,
+        ok: true, version: CODE_VERSION,
+        code: code, secondsRemaining: secondsRemaining,
         offset: user.timeOffset || 0,
+        countryCode: user.countryCode,
+        timezoneOffset: tzOffset,
         hint: buildCrypticHint_(user.timeOffset || 0)
     });
 }
 
 function changeOffset(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     const password = String(body.password || '');
     const newOffset = Number(body.newOffset);
 
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!verifySessionForPhone_(phone, token)) return jsonResponse({ ok: false, error: 'invalid_session' });
-    if (!password) return jsonResponse({ ok: false, error: 'no_password', message: 'Password is required.' });
+    if (!password) return jsonResponse({ ok: false, error: 'no_password' });
     if (!Number.isInteger(newOffset) || newOffset === 0 || Math.abs(newOffset) > 9) {
-        return jsonResponse({ ok: false, error: 'invalid_offset', message: 'Offset must be between -9 and +9, excluding 0.' });
+        return jsonResponse({ ok: false, error: 'invalid_offset', message: 'Offset must be -9 to +9, excluding 0.' });
     }
 
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password_set', message: 'You must have a password to change your offset.' });
-    if (hashPassword_(phone, password) !== user.passwordHash) {
-        return jsonResponse({ ok: false, error: 'wrong_password', message: 'Wrong password.' });
+    if (!user.passwordHash) return jsonResponse({ ok: false, error: 'no_password_set' });
+    if (!verifyPassword_(phone, password, user.passwordHash, user.salt)) {
+        return jsonResponse({ ok: false, error: 'wrong_password' });
     }
 
     const sheet = getSheet(REGISTRATIONS_SHEET);
     sheet.getRange(user.row, 11).setValue(newOffset);
-
     return jsonResponse({ ok: true, version: CODE_VERSION, newOffset: newOffset, message: 'Offset updated.' });
 }
 
 // ═══════════════════════════════════════════════════════════════
-// RECOVERY (welcome resend, password reset)
+// RECOVERY
 // ═══════════════════════════════════════════════════════════════
 function resendWelcome(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const user = findUserByPhone(phone);
-    if (!user) return jsonResponse({ ok: false, error: 'not_found', message: 'No account.' });
+    if (!user) return jsonResponse({ ok: false, error: 'not_found' });
     if (!user.email || !EMAIL_RE.test(user.email)) return jsonResponse({ ok: false, error: 'no_email' });
 
     const props = PropertiesService.getScriptProperties();
@@ -776,10 +1095,7 @@ function resendWelcome(body) {
             const s = Math.ceil((60 * 1000 - (now - rate.lastAt)) / 1000);
             return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's.' };
         }
-        if (rate.count >= 3) {
-            const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many', message: 'Too many requests. Try in ' + m + ' min.' };
-        }
+        if (rate.count >= 3) return { ok: false, error: 'too_many' };
         rate.count++; rate.lastAt = now;
         props.setProperty(rateKey, JSON.stringify(rate));
         return { ok: true };
@@ -787,7 +1103,8 @@ function resendWelcome(body) {
     if (!gate.ok) return jsonResponse(gate);
 
     if (user.authMethod === 'totp' || user.authMethod === 'both') {
-        const code = formatTimeCode_(new Date(), user.timeOffset || 0);
+        const tzOffset = resolveTimezoneOffsetMin_(null, user.countryCode);
+        const code = formatTimeCode_(new Date(), user.timeOffset || 0, tzOffset);
         sendTimeBasedOTPEmail(user.email, code, user.timeOffset || 0, user.name, phone);
     } else if (user.authMethod === 'password') {
         sendPasswordWelcomeEmail(user.email, user.name, phone);
@@ -802,11 +1119,11 @@ function resendWelcome(body) {
 
 function requestPasswordReset(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const user = findUserByPhone(phone);
     if (!user) return jsonResponse({ ok: false, error: 'not_found' });
-    if (!user.passwordHash) return jsonResponse({ ok: false, error: 'not_password', message: 'This account has no password.' });
+    if (!user.passwordHash) return jsonResponse({ ok: false, error: 'not_password' });
     if (!user.email || !EMAIL_RE.test(user.email)) return jsonResponse({ ok: false, error: 'no_email' });
 
     const props = PropertiesService.getScriptProperties();
@@ -823,10 +1140,7 @@ function requestPasswordReset(body) {
             const s = Math.ceil((60 * 1000 - (now - rate.lastAt)) / 1000);
             return { ok: false, error: 'too_soon', message: 'Wait ' + s + 's.' };
         }
-        if (rate.count >= 3) {
-            const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many', message: 'Too many requests. Try in ' + m + ' min.' };
-        }
+        if (rate.count >= 3) return { ok: false, error: 'too_many' };
         props.setProperty('pwreset_' + phone, JSON.stringify({
             hash: hashCode_(phone, code), email: user.email, expiresAt: expiresAt, tries: 0
         }));
@@ -841,8 +1155,7 @@ function requestPasswordReset(body) {
             to: user.email,
             subject: '🔑 Reset your Sandesai password',
             name: 'Sandesai',
-            htmlBody: buildPasswordResetEmailHtml(code, user.name),
-            body: 'Your Sandesai reset code is ' + code + '. Expires in 15 minutes.'
+            htmlBody: buildPasswordResetEmailHtml(code, user.name)
         });
     } catch (e) {
         props.deleteProperty('pwreset_' + phone);
@@ -856,10 +1169,10 @@ function requestPasswordReset(body) {
 
 function resetPassword(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const code = String(body.code || '').trim();
     const newPassword = String(body.newPassword || '');
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!/^\d{6}$/.test(code)) return jsonResponse({ ok: false, error: 'invalid_code' });
     if (newPassword.length < 6) return jsonResponse({ ok: false, error: 'weak_password' });
 
@@ -883,8 +1196,10 @@ function resetPassword(body) {
         }
 
         const sheet = getSheet(REGISTRATIONS_SHEET);
-        const newHash = hashPassword_(phone, newPassword);
+        const newSalt = generateSalt_();
+        const newHash = hashPassword_(phone, newPassword, newSalt);
         sheet.getRange(user.row, 10).setValue(newHash);
+        sheet.getRange(user.row, 13).setValue(newSalt);
         const curMethod = String(sheet.getRange(user.row, 9).getValue() || 'totp');
         if (curMethod === 'totp') sheet.getRange(user.row, 9).setValue('both');
         sheet.getRange(user.row, 6).setValue(new Date().toISOString());
@@ -898,10 +1213,7 @@ function resetPassword(body) {
                 htmlBody: buildPasswordChangedEmailHtml(user.name)
             });
         } catch (e) {}
-
-        // Also unlock TOTP since they verified via email
         clearTotpFailState_(phone);
-
         return jsonResponse({ ok: true, version: CODE_VERSION, message: 'Password updated.' });
     });
 }
@@ -910,19 +1222,25 @@ function resetPassword(body) {
 // REGISTRATION
 // ═══════════════════════════════════════════════════════════════
 function logRegistration(body) {
-    if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, version: CODE_VERSION, error: 'invalid secret' });
+    if (SECRET && body.secret !== SECRET) {
+        return jsonResponse({ ok: false, version: CODE_VERSION, error: 'invalid secret' });
+    }
 
-    const name     = String(body.name || '').trim();
+    const name     = String(body.name     || '').trim();
     const username = String(body.username || '').trim();
-    const phone    = String(body.phone || '').trim();
-    const uid      = String(body.uid || '').trim();
-    let   email    = String(body.email || '').trim();
-    const provider = String(body.provider || 'otp').toLowerCase();
-    const authMethod = String(body.authMethod || provider || 'totp').toLowerCase();
+    const country  = String(body.countryCode || '91').replace(/\D/g, '');
+    const uid      = String(body.uid      || '').trim();
+    let   email    = String(body.email    || '').trim();
     const pw       = String(body.password || '').trim();
 
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Enter a valid 10-digit Indian mobile (starts 6–9).' });
-    if (!USERNAME_RE.test(username)) return jsonResponse({ ok: false, error: 'invalid_username', message: 'Username must be 3–20 letters, numbers, underscore or dot.' });
+    const pv = validatePhoneForCountry_(country, body.phone);
+    if (!pv.ok) return jsonResponse({ ok: false, error: pv.error, message: pv.message });
+    const phone = pv.full;
+
+    if (!USERNAME_RE.test(username)) {
+        return jsonResponse({ ok: false, error: 'invalid_username',
+            message: 'Username must be 3–20 letters, numbers, underscore or dot.' });
+    }
 
     if (!email) {
         try {
@@ -930,22 +1248,40 @@ function logRegistration(body) {
             if (cached) email = cached;
         } catch (e) {}
     }
-    if (email && !EMAIL_RE.test(email)) return jsonResponse({ ok: false, error: 'invalid_email', message: 'Enter a valid email.' });
+    if (email && !EMAIL_RE.test(email)) {
+        return jsonResponse({ ok: false, error: 'invalid_email', message: 'Enter a valid email.' });
+    }
+
+    const requestedMethod = String(body.authMethod || '').toLowerCase();
+    const isGoogleSignin  = requestedMethod === 'google' && !!String(body.googleIdToken || '').trim();
 
     const sheet = getSheet(REGISTRATIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: false, error: 'no_registrations_sheet' });
 
-    const data = sheet.getDataRange().getValues();
+    const data  = sheet.getDataRange().getValues();
     const lower = username.toLowerCase();
     const phoneRows = [];
     let usernameRow = -1;
     for (let i = 1; i < data.length; i++) {
-        const rowPhone = String(data[i][2] || '').trim();
-        const rowUser  = String(data[i][1] || '').trim().toLowerCase();
-        if (rowPhone === phone) phoneRows.push(i + 1);
-        if (rowUser === lower && rowPhone !== phone) usernameRow = i + 1;
+        const storedPhone = String(data[i][2] || '').replace(/\D/g, '');
+        const rowUser     = String(data[i][1] || '').trim().toLowerCase();
+        const match = storedPhone === phone
+            || (storedPhone.length === 10 && '91' + storedPhone === phone)
+            || (phone.length === 10 && storedPhone === '91' + phone);
+        if (match) phoneRows.push(i + 1);
+        if (rowUser === lower && !match) usernameRow = i + 1;
     }
-    if (usernameRow !== -1) return jsonResponse({ ok: false, error: 'username_taken', message: 'Username "' + username + '" is already taken.' });
+    if (usernameRow !== -1) {
+        return jsonResponse({ ok: false, error: 'username_taken',
+            message: 'Username "' + username + '" is already taken.' });
+    }
+
+    if (!isGoogleSignin) {
+        if (!consumeOtpVerified_(phone)) {
+            return jsonResponse({ ok: false, error: 'otp_not_verified',
+                message: 'Please verify your email OTP before registering.' });
+        }
+    }
 
     const nowIso = new Date().toISOString();
 
@@ -959,23 +1295,29 @@ function logRegistration(body) {
         const keepRow = phoneRows[0];
         const cur = sheet.getRange(keepRow, 1, 1, REG_HEADERS.length).getValues()[0];
         const createdAtIso = isoOrEmpty_(cur[4]) || nowIso;
-        const existingEmail = String(cur[3] || '');
-        const existingUid   = String(cur[6] || '');
-        const existingMethod = String(cur[8] || 'totp');
-        const existingHash   = String(cur[9] || '');
+
+        const existingEmail  = String(cur[3]  || '');
+        const existingUid    = String(cur[6]  || '');
+        const existingMethod = String(cur[8]  || 'totp');
+        const existingHash   = String(cur[9]  || '');
         const existingOffset = Number(cur[10]) || 0;
+        const existingSalt   = String(cur[12] || '');
 
         let finalMethod = existingMethod;
-        let finalHash = existingHash;
+        let finalHash   = existingHash;
         let finalOffset = existingOffset;
+        let finalSalt   = existingSalt;
 
-        if (authMethod === 'google') {
+        if (isGoogleSignin) {
             finalMethod = 'google';
         } else {
-            if (!finalOffset) finalOffset = generateTimeOffset_();
+            if (!finalOffset) finalOffset = consumePendingOffset_(phone) || generateTimeOffset_();
+            else              consumePendingOffset_(phone);
+
             if (pw) {
-                if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
-                finalHash = hashPassword_(phone, pw);
+                if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password' });
+                finalSalt = generateSalt_();
+                finalHash = hashPassword_(phone, pw, finalSalt);
                 finalMethod = 'both';
             } else if (!finalHash) {
                 finalMethod = 'totp';
@@ -987,57 +1329,43 @@ function logRegistration(body) {
         sheet.getRange(keepRow, 1, 1, REG_HEADERS.length).setValues([[
             name || cur[0] || '', username, phone, email || existingEmail,
             createdAtIso, nowIso, uid || existingUid, 'active',
-            finalMethod, finalHash, finalOffset
+            finalMethod, finalHash, finalOffset, country, finalSalt
         ]]);
 
         clearTotpFailState_(phone);
-
         notifyAdmin_('🔄 User re-registered: ' + (name || phone), '🔄 Re-registration', '#a78bfa',
             name, username, phone, email,
-            '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + '</p>');
+            '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + ' · Country: +' + country + '</p>');
 
-        if (email) {
-            if (finalMethod === 'totp' || finalMethod === 'both') {
-                const currentCode = formatTimeCode_(new Date(), finalOffset);
-                sendTimeBasedOTPEmail(email, currentCode, finalOffset, name, phone);
-            } else if (finalMethod === 'password') {
-                sendPasswordWelcomeEmail(email, name, phone);
-            }
-        }
-
-        return jsonResponse({ ok: true, version: CODE_VERSION, updated: true, row: keepRow, duplicatesRemoved: phoneRows.length - 1 });
+        return jsonResponse({
+            ok: true, version: CODE_VERSION, updated: true,
+            row: keepRow, duplicatesRemoved: phoneRows.length - 1
+        });
     }
 
-    // New user
     let finalMethod = 'totp';
-    let finalHash = '';
+    let finalHash   = '';
     let finalOffset = 0;
+    let finalSalt   = '';
 
-    if (authMethod === 'google') {
+    if (isGoogleSignin) {
         finalMethod = 'google';
     } else {
-        finalOffset = generateTimeOffset_();
+        finalOffset = consumePendingOffset_(phone) || generateTimeOffset_();
         if (pw) {
-            if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password', message: 'Password must be at least 6 characters.' });
-            finalHash = hashPassword_(phone, pw);
+            if (pw.length < 6) return jsonResponse({ ok: false, error: 'weak_password' });
+            finalSalt = generateSalt_();
+            finalHash = hashPassword_(phone, pw, finalSalt);
             finalMethod = 'both';
-        } else {
-            finalMethod = 'totp';
         }
     }
 
-    sheet.appendRow([name, username, phone, email, nowIso, nowIso, uid, 'active', finalMethod, finalHash, finalOffset]);
+    sheet.appendRow([name, username, phone, email, nowIso, nowIso, uid, 'active',
+                     finalMethod, finalHash, finalOffset, country, finalSalt]);
 
     notifyAdmin_('🎉 New user: ' + (name || phone), '🎉 New registration', '#a78bfa',
         name, username, phone, email,
-        '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + '</p>');
-
-    if (email && (finalMethod === 'totp' || finalMethod === 'both')) {
-        const currentCode = formatTimeCode_(new Date(), finalOffset);
-        sendTimeBasedOTPEmail(email, currentCode, finalOffset, name, phone);
-    } else if (email && finalMethod === 'password') {
-        sendPasswordWelcomeEmail(email, name, phone);
-    }
+        '<p style="color:#7a89a8;font-size:13px;margin-top:16px;">Auth: ' + finalMethod + ' · Country: +' + country + '</p>');
 
     return jsonResponse({ ok: true, version: CODE_VERSION, created: true, row: sheet.getLastRow() });
 }
@@ -1053,162 +1381,287 @@ function sendTimeBasedOTPEmail(email, code, offsetMinutes, userName, phone) {
         ? 'You are ' + stepsText + ' ahead of your time.'
         : (offsetMinutes < 0 ? 'You are ' + stepsText + ' behind your time.' : 'You are right on time.');
 
-    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-@keyframes sdShimmer{0%{background-position:-200% center;}100%{background-position:200% center;}}
-@keyframes sdPulse{0%,100%{opacity:.45;}50%{opacity:.85;}}
-.sd-shimmer{background:linear-gradient(90deg,#a78bfa 0%,#ffffff 45%,#6ee7ff 55%,#a78bfa 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:sdShimmer 4s linear infinite;}
-.sd-pulse{animation:sdPulse 2.4s ease-in-out infinite;}
-</style></head>
+    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a 0%,#0a0818 100%);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a 0%,#0a0818 100%);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;">
 <tr><td align="center" style="padding:40px 32px 8px 32px;">
-<img src="${LOGO_URL}" alt="Sandesai" width="100" height="100" style="width:100px;height:100px;border-radius:50%;border:2px solid rgba(139,92,246,.4);box-shadow:0 0 60px rgba(139,92,246,.55);" />
-<div style="margin-top:22px;font-size:26px;font-weight:700;color:#eef0f5;">Welcome, <span class="sd-shimmer">${displayName}</span>!</div>
-<div style="margin-top:8px;font-size:14px;color:#7a89a8;">Your Sandesai account is ready</div>
+<img src="${LOGO_URL}" alt="Sandesai" width="100" height="100" style="width:100px;height:100px;border-radius:50%;border:2px solid rgba(139,92,246,.4);display:block;margin:0 auto;" />
+<div style="margin-top:22px;font-size:26px;font-weight:700;color:#eef0f5;">Your live token, <span style="color:#c4b5fd;">${displayName}</span></div>
 </td></tr>
 <tr><td align="center" style="padding:20px 32px 8px 32px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(139,92,246,.10);border-radius:20px;border:1px solid rgba(139,92,246,.32);">
-<tr><td align="center" style="padding:22px 20px 6px 20px;">
-<div style="font-size:11px;letter-spacing:.20em;text-transform:uppercase;color:#a78bfa;font-weight:700;">Your live token</div>
-</td></tr>
-<tr><td align="center" style="padding:12px 20px 8px 20px;">
-<div style="display:inline-block;font-size:52px;font-weight:800;letter-spacing:16px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 28px rgba(139,92,246,.75);padding-left:16px;">${code}</div>
-</td></tr>
-<tr><td align="center" style="padding:6px 20px 20px 20px;">
-<div class="sd-pulse" style="display:inline-block;font-size:12px;color:#6ee7ff;background:rgba(110,231,255,.10);border:1px solid rgba(110,231,255,.25);border-radius:20px;padding:4px 12px;">
-● refreshes every minute
-</div>
-</td></tr>
+<tr><td align="center" style="padding:22px 20px 6px 20px;"><div style="font-size:11px;letter-spacing:.20em;text-transform:uppercase;color:#a78bfa;font-weight:700;">Your live token</div></td></tr>
+<tr><td align="center" style="padding:12px 20px 8px 20px;"><div style="display:inline-block;font-size:52px;font-weight:800;letter-spacing:16px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;padding-left:16px;-webkit-user-select:all;user-select:all;cursor:pointer;">${code}</div></td></tr>
+<tr><td align="center" style="padding:6px 20px 20px 20px;"><div style="display:inline-block;font-size:12px;color:#6ee7ff;background:rgba(110,231,255,.10);border:1px solid rgba(110,231,255,.25);border-radius:20px;padding:4px 12px;">● refreshes every minute</div></td></tr>
 </table>
 </td></tr>
 <tr><td style="padding:22px 32px 8px 32px;">
 <div style="font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#6ee7ff;font-weight:600;margin-bottom:10px;">Your secret offset</div>
 <div style="font-size:15px;color:#c4b5fd;font-weight:600;">${crypticLine}</div>
-<div style="font-size:13px;color:#7a89a8;margin-top:10px;line-height:1.55;">
-Your code is based on the time shown on your device. Adjust it by your secret offset, and format the result as <b style="color:#eef0f5;">HHMM</b> (12-hour clock).
-</div>
+<div style="font-size:13px;color:#8a98b5;margin-top:10px;line-height:1.55;">Your code is based on the time shown on your device. Adjust it by your secret offset, and format the result as HHMM (12-hour clock).</div>
 </td></tr>
-<tr><td style="padding:18px 32px 8px 32px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(255,255,255,.03);border-radius:16px;border:1px solid rgba(255,255,255,.06);">
-<tr><td style="padding:16px 20px;">
-<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#7a89a8;font-weight:600;margin-bottom:8px;">Example (right now)</div>
-<div style="font-family:'SF Mono',Menlo,monospace;font-size:14px;color:#a5b3d0;line-height:1.8;">
-If your device shows <span style="color:#eef0f5;">${formatTime12_(new Date())}</span><br>
-Adjust by <span style="color:#6ee7ff;">${offsetMinutes >= 0 ? '+' : ''}${offsetMinutes}</span> → <span style="color:#c4b5fd;">${formatTime12_(new Date(Date.now() + offsetMinutes * 60000))}</span><br>
-Your code is <span style="color:#c4b5fd;font-weight:700;letter-spacing:4px;">${code}</span>
-</div>
-</td></tr></table>
-</td></tr>
-<tr><td style="padding:18px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">🔒 <b style="color:#7a89a8;">Keep this email private.</b> Anyone with your offset and device time can generate your code.</div></td></tr>
-<tr><td align="center" style="padding:24px 32px 8px 32px;">
-<div style="display:inline-block;padding:14px 32px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:15px;box-shadow:0 12px 32px rgba(139,92,246,.4);">Open Sandesai →</div>
-<div style="margin-top:10px;font-size:12px;color:#5a6885;">Sign in with your phone to see a live-updating code</div>
+<tr><td align="center" style="padding:26px 32px 8px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">Open Sandesai →</a>
 </td></tr>
 <tr><td align="center" style="padding:32px 32px 36px 32px;">
-<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
-<img src="${LOGO_URL}" alt="Sandesai" width="36" height="36" style="width:36px;height:36px;border-radius:50%;border:1px solid rgba(139,92,246,.3);" />
-<div style="font-size:14px;font-weight:600;color:#a78bfa;margin-top:10px;">Sandesai</div>
-</td></tr></table>
-<div style="max-width:520px;margin-top:20px;font-size:11px;color:#3d4a5f;text-align:center;">© ${new Date().getFullYear()} Sandesai</div>
-</td></tr></table></body></html>`.trim();
+<img src="${LOGO_URL}" alt="Sandesai" width="36" height="36" style="width:36px;height:36px;border-radius:50%;border:1px solid rgba(139,92,246,.3);display:block;margin:0 auto;" />
+</td></tr>
+</table></td></tr></table></body></html>`.trim();
 
     try {
-        MailApp.sendEmail({ to: email, subject: '🔐 Welcome to Sandesai — your live token', htmlBody: htmlBody, name: 'Sandesai' });
-    } catch (e) { console.error('sendTimeBasedOTPEmail failed:', e); }
+        MailApp.sendEmail({ to: email, subject: '🔐 Your Sandesai live token', htmlBody: htmlBody, name: 'Sandesai' });
+        console.log('📧 TOTP email sent to', email);
+        return { ok: true };
+    } catch (e) {
+        console.error('sendTimeBasedOTPEmail failed:', e);
+        return { ok: false, error: String(e).slice(0, 250) };
+    }
 }
 
 function sendPasswordWelcomeEmail(email, userName, phone) {
     const displayName = escapeHtml_(userName || 'there');
-    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-@keyframes sdShimmer{0%{background-position:-200% center;}100%{background-position:200% center;}}
-.sd-shimmer{background:linear-gradient(90deg,#a78bfa 0%,#ffffff 45%,#6ee7ff 55%,#a78bfa 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:sdShimmer 4s linear infinite;}
-</style></head>
+    const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;">
 <tr><td align="center" style="padding:40px 32px 12px 32px;">
-<img src="${LOGO_URL}" alt="Sandesai" width="96" height="96" style="width:96px;height:96px;border-radius:50%;border:2px solid rgba(139,92,246,.4);box-shadow:0 0 60px rgba(139,92,246,.5);" />
-<div style="margin-top:22px;font-size:26px;font-weight:700;color:#eef0f5;">Welcome, <span class="sd-shimmer">${displayName}</span>!</div>
-<div style="margin-top:8px;font-size:14px;color:#7a89a8;">Your Sandesai account is ready</div>
+<img src="${LOGO_URL}" alt="Sandesai" width="96" height="96" style="width:96px;height:96px;border-radius:50%;border:2px solid rgba(139,92,246,.4);display:block;margin:0 auto;" />
+<div style="margin-top:22px;font-size:26px;font-weight:700;color:#eef0f5;text-align:center;">Welcome, <span style="color:#c4b5fd;">${displayName}</span>!</div>
 </td></tr>
-<tr><td style="padding:16px 32px 8px 32px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(139,92,246,.08);border-radius:16px;border:1px solid rgba(139,92,246,.28);">
-<tr><td style="padding:20px;">
-<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#a78bfa;font-weight:600;margin-bottom:10px;">Your sign-in method</div>
-<div style="font-size:16px;font-weight:700;color:#eef0f5;">Password</div>
-<div style="font-size:13px;color:#a5b3d0;margin-top:8px;line-height:1.6;">Use your <b style="color:#c4b5fd;">phone number</b> and this password to sign in.</div>
-</td></tr></table></td></tr>
-<tr><td style="padding:16px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">🔒 <b style="color:#7a89a8;">Keep this email private.</b> We don't store plaintext passwords.</div></td></tr>
+<tr><td align="center" style="padding:20px 32px 8px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">Open Sandesai →</a>
+</td></tr>
 <tr><td align="center" style="padding:28px 32px 36px 32px;">
-<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
-<img src="${LOGO_URL}" alt="Sandesai" width="36" height="36" style="width:36px;height:36px;border-radius:50%;border:1px solid rgba(139,92,246,.3);" />
-<div style="font-size:14px;font-weight:600;color:#a78bfa;margin-top:10px;">Sandesai</div>
-</td></tr></table></td></tr></table></body></html>`;
+<img src="${LOGO_URL}" alt="Sandesai" width="36" height="36" style="width:36px;height:36px;border-radius:50%;border:1px solid rgba(139,92,246,.3);display:block;margin:0 auto;" />
+</td></tr>
+</table></td></tr></table></body></html>`;
     try {
         MailApp.sendEmail({ to: email, subject: '🎉 Welcome to Sandesai', htmlBody: htmlBody, name: 'Sandesai' });
-    } catch (e) { console.error('sendPasswordWelcomeEmail failed:', e); }
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, error: String(e).slice(0, 250) };
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WELCOME LETTER
+// ═══════════════════════════════════════════════════════════════
+function sendWelcomeLetterEmail(email, userName, phone) {
+    const name     = escapeHtml_(userName || 'friend');
+    const logo     = LOGO_URL;
+    const sign     = SIGN_URL;
+    const appUrl   = APP_URL;
+    const letterUrl = LETTER_URL + '?name=' + encodeURIComponent(userName || 'friend');
+
+    const htmlBody = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:linear-gradient(180deg,#12102a 0%,#0a0818 100%);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.55);">
+
+<tr><td align="center" style="padding:40px 32px 8px 32px;">
+<img src="${logo}" alt="Sandesai" width="84" height="84" style="width:84px;height:84px;border-radius:50%;border:2px solid rgba(139,92,246,.4);box-shadow:0 0 60px rgba(139,92,246,.5);display:block;margin:0 auto;" />
+<div style="margin-top:18px;font-size:26px;font-weight:700;letter-spacing:-.02em;color:#c4b5fd;text-align:center;">Sandesai</div>
+<div style="margin-top:6px;font-size:12px;color:#8a98b5;letter-spacing:.08em;text-transform:uppercase;line-height:1.5;text-align:center;">A messenger for the people we never want to lose</div>
+</td></tr>
+
+<tr><td align="center" style="padding:20px 32px 8px 32px;"><div style="height:1px;background:linear-gradient(90deg,transparent,rgba(139,92,246,.4),transparent);"></div></td></tr>
+
+<tr><td style="padding:22px 36px 0 36px;">
+<div style="font-size:21px;font-weight:700;color:#eef0f5;margin:0 0 20px;">Dear <span style="color:#c4b5fd;">${name}</span>,</div>
+<p style="font-size:16px;line-height:1.75;color:#c5cfe0;margin:0 0 18px;">
+Welcome to <b style="color:#c4b5fd;">Sandesai</b>. If you're reading this, it means you're
+someone I've chosen to share something deeply personal with. Not a product. Not a business.
+A small, honest thing I built with my own hands for the people I love most.
+</p>
+<p style="font-size:16px;line-height:1.75;color:#c5cfe0;margin:0 0 18px;">
+Read this letter slowly. It's the only time I'll write it.
+</p>
+</td></tr>
+
+<tr><td style="padding:20px 36px 0 36px;">
+<div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#6ee7ff;font-weight:700;margin-bottom:14px;">What you can do inside</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr><td style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:16px;padding:14px 18px;display:block;">
+<div style="font-size:15px;font-weight:700;color:#eef0f5;margin-bottom:4px;">💬 Chats that are only ours</div>
+<div style="font-size:14px;line-height:1.6;color:#a5b3d0;">Messages live between you and the person you're talking to. No ads. No strangers. No algorithms deciding who reaches you.</div>
+</td></tr>
+<tr><td style="height:10px;"></td></tr>
+<tr><td style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:16px;padding:14px 18px;display:block;">
+<div style="font-size:15px;font-weight:700;color:#eef0f5;margin-bottom:4px;">🎙️ Voice &amp; video calls</div>
+<div style="font-size:14px;line-height:1.6;color:#a5b3d0;">Direct, peer-to-peer and encrypted. It doesn't matter how far away someone is, or whether they've topped up their recharge — if you have their number, you can reach them.</div>
+</td></tr>
+<tr><td style="height:10px;"></td></tr>
+<tr><td style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:16px;padding:14px 18px;display:block;">
+<div style="font-size:15px;font-weight:700;color:#eef0f5;margin-bottom:4px;">🧠 RAGina, your quiet companion</div>
+<div style="font-size:14px;line-height:1.6;color:#a5b3d0;">An assistant that can help you reflect on long conversations, remember what matters, and grow alongside you.</div>
+</td></tr>
+<tr><td style="height:10px;"></td></tr>
+<tr><td style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:16px;padding:14px 18px;display:block;">
+<div style="font-size:15px;font-weight:700;color:#eef0f5;margin-bottom:4px;">🎵 Shared moments</div>
+<div style="font-size:14px;line-height:1.6;color:#a5b3d0;">Talk, laugh, listen to music together, or just sit in silence. The call remembers what you said. So do you.</div>
+</td></tr>
+<tr><td style="height:10px;"></td></tr>
+<tr><td style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.18);border-radius:16px;padding:14px 18px;display:block;">
+<div style="font-size:15px;font-weight:700;color:#eef0f5;margin-bottom:4px;">📌 Reminders &amp; memories</div>
+<div style="font-size:14px;line-height:1.6;color:#a5b3d0;">Long calls stay. Reminders stay. Love stays. Your memories are kept safe, so a broken phone or a lost SIM doesn't take them with it.</div>
+</td></tr>
+</table>
+</td></tr>
+
+<tr><td style="padding:28px 36px 0 36px;">
+<div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#6ee7ff;font-weight:700;margin-bottom:14px;">Why I built this</div>
+<div style="border-left:3px solid rgba(139,92,246,.5);padding-left:18px;">
+<p style="font-size:15px;line-height:1.8;color:#c5cfe0;margin:0 0 14px;">
+For a long time, my wife and I lived in the same city. Every evening was ours. Then one day she
+went to her parents' home — and for the first time in a long while, I found myself in a quiet
+room missing her voice. Not just the sound. The <b style="color:#eef0f5;">presence</b>. The long
+calls that start at eleven and end at three. The laughter that jumps across silence. The silly
+arguments about which song is better. The GK discussions that always ended with one of us
+learning something new about the world.
+</p>
+<p style="font-size:15px;line-height:1.8;color:#c5cfe0;margin:0 0 14px;">
+I wanted somewhere — just for us. Not a place with strangers, not a feed, not a network. A room
+with two chairs. A place where we talk, laugh, listen to music, remember our calls, our reminders,
+our love. A place where the memories we make are <b style="color:#eef0f5;">safe</b> — not lost to
+a bad phone, a stolen SIM, a broken backup, or an outage.
+</p>
+<p style="font-size:15px;line-height:1.8;color:#c5cfe0;margin:0 0 14px;">
+So I built Sandesai. Not because the world needed another chat app. Because <i style="color:#c4b5fd;font-style:italic;">we</i>
+needed one that respected what matters.
+</p>
+<p style="font-size:15px;line-height:1.8;color:#c5cfe0;margin:0;">
+And then I thought — if I could give this to myself, why not share it with people who have
+someone they love too? If you have someone dear, someone far away, someone whose number you
+know by heart, someone you'd call regardless of recharge, distance, or timezone — this is for
+you. Keep that bond. Make memories. Let them be <b style="color:#eef0f5;">kept safe</b>.
+</p>
+</div>
+</td></tr>
+
+<tr><td style="padding:28px 36px 0 36px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+       style="background:linear-gradient(135deg,rgba(236,72,153,.10),rgba(139,92,246,.10));border:1px solid rgba(236,72,153,.25);border-radius:20px;">
+<tr><td align="center" style="padding:22px 24px;text-align:center;">
+<p style="font-size:17px;font-weight:700;line-height:1.5;color:#eef0f5;margin:0 0 8px;">
+That's why I say —<br>
+I'm your Sun <span style="color:#fbbf24;font-size:20px;">☀️</span> and you are my Summer.
+</p>
+<p style="font-size:14px;color:#a5b3d0;line-height:1.6;margin:0;">
+And to my dear Christina, who is also Greeshma —<br>
+I hope you'll love this.
+</p>
+</td></tr>
+</table>
+</td></tr>
+
+<tr><td align="center" style="padding:30px 36px 0 36px;">
+<a href="${appUrl}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">
+Open Sandesai →
+</a>
+<div style="margin-top:10px;font-size:12px;color:#8a98b5;text-align:center;">
+or <a href="${letterUrl}" style="color:#c4b5fd;text-decoration:underline;">read the letter online</a>
+</div>
+</td></tr>
+
+<tr><td align="center" style="padding:24px 36px 0 36px;">
+<p style="font-size:14px;line-height:1.7;color:#a5b3d0;text-align:center;margin:0;">
+If you have ideas, feedback, or just want to say hi — reply to
+<a href="mailto:sandesai@gmail.com" style="color:#c4b5fd;text-decoration:underline;">sandesai@gmail.com</a>.
+Every message lands in my inbox. I read them all. 🥰
+</p>
+</td></tr>
+
+<tr><td align="center" style="padding:32px 36px 36px 36px;">
+<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
+<img src="${sign}" alt="" width="130" height="130" style="width:130px;height:130px;object-fit:contain;opacity:.92;display:block;margin:0 auto 8px;" />
+<div style="font-size:16px;font-weight:700;color:#eef0f5;text-align:center;">Sai Surya <span style="color:#fbbf24;">☀️</span></div>
+<div style="font-size:14px;color:#8a98b5;margin:4px 0 0;text-align:center;">For Greeshma — with all my heart</div>
+<div style="font-size:13px;color:#6b7a96;margin:18px 0 0;line-height:1.6;text-align:center;">
+Made with <b style="color:#c4b5fd;">care</b> between two cups of chai,<br>
+for the person whose voice I'd cross any distance to hear.
+</div>
+</td></tr>
+
+</table>
+<div style="max-width:600px;margin-top:22px;font-size:11px;color:#3d4a5f;text-align:center;line-height:1.6;">
+© ${new Date().getFullYear()} Sandesai · This letter is yours alone.<br>
+If it wasn't meant for you, you can safely ignore it.
+</div>
+</td></tr>
+</table>
+</body></html>`;
+
+    try {
+        MailApp.sendEmail({
+            to: email,
+            subject: 'A letter from Sandesai 💌',
+            htmlBody: htmlBody,
+            name: 'Sai Surya · Sandesai'
+        });
+        return true;
+    } catch (e) {
+        console.error('sendWelcomeLetterEmail failed:', e);
+        return false;
+    }
 }
 
 function buildPasswordResetEmailHtml(code, userName) {
     const name = escapeHtml_(userName || 'there');
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-@keyframes sdShimmer{0%{background-position:-200% center;}100%{background-position:200% center;}}
-.sd-shimmer{background:linear-gradient(90deg,#a78bfa 0%,#fff 45%,#6ee7ff 55%,#a78bfa 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:sdShimmer 4s linear infinite;}
-</style></head>
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(139,92,246,.22);overflow:hidden;">
 <tr><td align="center" style="padding:40px 32px 8px 32px;">
-<img src="${LOGO_URL}" alt="Sandesai" width="88" height="88" style="width:88px;height:88px;border-radius:50%;border:2px solid rgba(139,92,246,.4);box-shadow:0 0 60px rgba(139,92,246,.5);" />
-<div style="margin-top:22px;font-size:24px;font-weight:700;color:#eef0f5;">Reset your password, <span class="sd-shimmer">${name}</span></div>
+<img src="${LOGO_URL}" alt="Sandesai" width="88" height="88" style="width:88px;height:88px;border-radius:50%;border:2px solid rgba(139,92,246,.4);display:block;margin:0 auto;" />
+<div style="margin-top:22px;font-size:24px;font-weight:700;color:#eef0f5;text-align:center;">Reset your password, <span style="color:#c4b5fd;">${name}</span></div>
 </td></tr>
 <tr><td align="center" style="padding:24px 32px 8px 32px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(139,92,246,.08);border-radius:20px;border:1px solid rgba(139,92,246,.28);">
 <tr><td align="center" style="padding:20px 20px 6px 20px;"><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#a78bfa;font-weight:600;">Your reset code</div></td></tr>
-<tr><td align="center" style="padding:10px 20px 22px 20px;"><div style="display:inline-block;font-size:42px;font-weight:800;letter-spacing:12px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 24px rgba(139,92,246,.65);padding-left:12px;">${code}</div></td></tr>
+<tr><td align="center" style="padding:10px 20px 22px 20px;"><div style="display:inline-block;font-size:42px;font-weight:800;letter-spacing:12px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;padding-left:12px;-webkit-user-select:all;user-select:all;cursor:pointer;">${code}</div></td></tr>
 </table></td></tr>
-<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">⏱️ <b style="color:#7a89a8;">Expires in 15 minutes.</b> If you didn't request this, ignore this email.</div></td></tr>
+<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#6b7a96;line-height:1.6;text-align:center;">⏱️ <b style="color:#a5b3d0;">Expires in 15 minutes.</b></div></td></tr>
+<tr><td align="center" style="padding:22px 32px 8px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">Return to Sandesai →</a>
+</td></tr>
 <tr><td align="center" style="padding:28px 32px 36px 32px;">
-<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
-<img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(139,92,246,.3);" />
-<div style="font-size:13px;font-weight:600;color:#a78bfa;margin-top:10px;">Sandesai</div>
-</td></tr></table></td></tr></table></body></html>`;
+<img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(139,92,246,.3);display:block;margin:0 auto 8px;" />
+<div style="font-size:13px;font-weight:600;color:#a78bfa;text-align:center;">Sandesai</div>
+</td></tr>
+</table></td></tr></table></body></html>`;
 }
 
 function buildUnlockEmailHtml(code, userName) {
     const name = escapeHtml_(userName || 'there');
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>
-@keyframes sdShimmer{0%{background-position:-200% center;}100%{background-position:200% center;}}
-.sd-shimmer{background:linear-gradient(90deg,#6ee7ff 0%,#fff 45%,#6ee7ff 55%,#6ee7ff 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:sdShimmer 4s linear infinite;}
-</style></head>
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(110,231,255,.25);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(110,231,255,.25);overflow:hidden;">
 <tr><td align="center" style="padding:40px 32px 8px 32px;">
-<img src="${LOGO_URL}" alt="Sandesai" width="88" height="88" style="width:88px;height:88px;border-radius:50%;border:2px solid rgba(110,231,255,.4);box-shadow:0 0 60px rgba(110,231,255,.5);" />
-<div style="margin-top:22px;font-size:24px;font-weight:700;color:#eef0f5;">Unlock your account, <span class="sd-shimmer">${name}</span></div>
-<div style="margin-top:8px;font-size:14px;color:#7a89a8;">Use this code to unlock your time code</div>
+<img src="${LOGO_URL}" alt="Sandesai" width="88" height="88" style="width:88px;height:88px;border-radius:50%;border:2px solid rgba(110,231,255,.4);display:block;margin:0 auto;" />
+<div style="margin-top:22px;font-size:24px;font-weight:700;color:#eef0f5;text-align:center;">Unlock your account, <span style="color:#6ee7ff;">${name}</span></div>
 </td></tr>
 <tr><td align="center" style="padding:24px 32px 8px 32px;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:rgba(110,231,255,.08);border-radius:20px;border:1px solid rgba(110,231,255,.28);">
 <tr><td align="center" style="padding:20px 20px 6px 20px;"><div style="font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#6ee7ff;font-weight:600;">Your unlock code</div></td></tr>
-<tr><td align="center" style="padding:10px 20px 22px 20px;"><div style="display:inline-block;font-size:42px;font-weight:800;letter-spacing:12px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;text-shadow:0 0 24px rgba(110,231,255,.65);padding-left:12px;">${code}</div></td></tr>
+<tr><td align="center" style="padding:10px 20px 22px 20px;"><div style="display:inline-block;font-size:42px;font-weight:800;letter-spacing:12px;color:#ffffff;font-family:'SF Mono',Menlo,monospace;padding-left:12px;-webkit-user-select:all;user-select:all;cursor:pointer;">${code}</div></td></tr>
 </table></td></tr>
-<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">⏱️ <b style="color:#7a89a8;">Expires in 15 minutes.</b> If you didn't request this, someone may be trying to access your account — change your password immediately.</div></td></tr>
+<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#6b7a96;line-height:1.6;text-align:center;">⏱️ <b style="color:#a5b3d0;">Expires in 15 minutes.</b></div></td></tr>
+<tr><td align="center" style="padding:22px 32px 8px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:15px 36px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:16px;text-decoration:none;box-shadow:0 12px 32px rgba(139,92,246,.4);">Return to Sandesai →</a>
+</td></tr>
 <tr><td align="center" style="padding:28px 32px 36px 32px;">
-<div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent);margin-bottom:24px;"></div>
-<img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(110,231,255,.3);" />
-<div style="font-size:13px;font-weight:600;color:#6ee7ff;margin-top:10px;">Sandesai</div>
-</td></tr></table></td></tr></table></body></html>`;
+<img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(110,231,255,.3);display:block;margin:0 auto 8px;" />
+<div style="font-size:13px;font-weight:600;color:#6ee7ff;text-align:center;">Sandesai</div>
+</td></tr>
+</table></td></tr></table></body></html>`;
 }
 
 function buildPasswordChangedEmailHtml(userName) {
@@ -1217,14 +1670,16 @@ function buildPasswordChangedEmailHtml(userName) {
 <body style="margin:0;padding:0;background:#07050e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Roboto,sans-serif;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#07050e;">
 <tr><td align="center" style="padding:32px 16px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(47,217,146,.25);overflow:hidden;box-shadow:0 40px 80px rgba(0,0,0,.55);">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:520px;background:linear-gradient(180deg,#12102a,#0a0818);border-radius:24px;border:1px solid rgba(47,217,146,.25);overflow:hidden;">
 <tr><td align="center" style="padding:40px 32px 16px 32px;">
-<img src="${LOGO_URL}" alt="Sandesai" width="80" height="80" style="width:80px;height:80px;border-radius:50%;border:2px solid rgba(47,217,146,.4);" />
-<div style="margin-top:20px;font-size:22px;font-weight:700;color:#eef0f5;">✅ Password updated</div>
-<div style="margin-top:10px;font-size:14px;color:#a5b3d0;line-height:1.6;">Hi ${name}, your Sandesai password was changed.</div>
+<img src="${LOGO_URL}" alt="Sandesai" width="80" height="80" style="width:80px;height:80px;border-radius:50%;border:2px solid rgba(47,217,146,.4);display:block;margin:0 auto;" />
+<div style="margin-top:20px;font-size:22px;font-weight:700;color:#eef0f5;text-align:center;">✅ Password updated</div>
+<div style="margin-top:10px;font-size:14px;color:#a5b3d0;text-align:center;">Hi ${name}, your password was changed.</div>
 </td></tr>
-<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#5a6885;line-height:1.6;">If this wasn't you, email <b style="color:#a78bfa;">sandesai@gmail.com</b> immediately.</div></td></tr>
-<tr><td align="center" style="padding:24px 32px 36px 32px;"><img src="${LOGO_URL}" alt="Sandesai" width="32" height="32" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(139,92,246,.3);" /></td></tr>
+<tr><td style="padding:20px 32px 8px 32px;"><div style="font-size:13px;color:#6b7a96;line-height:1.6;text-align:center;">If this wasn't you, email <b style="color:#a78bfa;">sandesai@gmail.com</b> immediately.</div></td></tr>
+<tr><td align="center" style="padding:22px 32px 36px 32px;">
+<a href="${APP_URL}" style="display:inline-block;padding:13px 32px;border-radius:14px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;">Open Sandesai →</a>
+</td></tr>
 </table></td></tr></table></body></html>`;
 }
 
@@ -1237,13 +1692,12 @@ function notifyAdmin_(subject, heading, color, name, username, phone, email, ext
                     '<h2 style="color:' + color + ';margin:0 0 12px;">' + heading + '</h2>' +
                     '<p><b>Name:</b> ' + escapeHtml_(name || '—') + '</p>' +
                     '<p><b>Username:</b> @' + escapeHtml_(username || '—') + '</p>' +
-                    '<p><b>Phone:</b> +91 ' + escapeHtml_(phone) + '</p>' +
+                    '<p><b>Phone:</b> +' + escapeHtml_(phone) + '</p>' +
                     '<p><b>Email:</b> ' + escapeHtml_(email || '—') + '</p>' +
                     (extraHtml || '') +
-                    '<p style="color:#7a89a8;font-size:13px;">' + new Date().toLocaleString() + '</p>' +
                 '</div>'
         });
-    } catch (e) { console.error('notifyAdmin_ failed:', e); }
+    } catch (e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1252,9 +1706,15 @@ function notifyAdmin_(subject, heading, color, name, username, phone, email, ext
 function findUserByPhone(phone) {
     const sheet = getSheet(REGISTRATIONS_SHEET);
     if (!sheet) return null;
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return null;
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-        if (String(data[i][2]) === String(phone)) return rowToUser_(data[i], i + 1);
+        const stored = String(data[i][2] || '').replace(/\D/g, '');
+        if (!stored) continue;
+        if (stored === digits) return rowToUser_(data[i], i + 1);
+        if (stored.length === 10 && ('91' + stored) === digits) return rowToUser_(data[i], i + 1);
+        if (digits.length === 10 && stored === '91' + digits)      return rowToUser_(data[i], i + 1);
     }
     return null;
 }
@@ -1296,26 +1756,23 @@ function findUserByEmail(email) {
 
 function rowToUser_(r, row) {
     return {
-        row: row,
-        name: r[0] || '',
-        username: r[1] || '',
-        phone: String(r[2] || ''),
-        email: String(r[3] || ''),
-        createdAt: r[4],
-        lastLogin: r[5],
-        uid: r[6] || '',
+        row: row, name: r[0] || '', username: r[1] || '',
+        phone: String(r[2] || ''), email: String(r[3] || ''),
+        createdAt: r[4], lastLogin: r[5], uid: r[6] || '',
         status: String(r[7] || 'active'),
         authMethod: String(r[8] || 'totp'),
         passwordHash: String(r[9] || ''),
-        timeOffset: Number(r[10]) || 0
+        timeOffset: Number(r[10]) || 0,
+        countryCode: String(r[11] || '91'),
+        salt: String(r[12] || '')
     };
 }
 
 function checkAvailability(body) {
-    const phone    = String(body.phone || '').trim();
+    const phone    = normalizePhone_(body.countryCode, body.phone);
     const username = String(body.username || '').trim();
     const result = { ok: true, version: CODE_VERSION };
-    if (phone) result.phoneAvailable = !findUserByPhone(phone);
+    if (phone)    result.phoneAvailable = !findUserByPhone(phone);
     if (username) {
         const byUser = findUserByUsername(username);
         result.usernameAvailable = !byUser || (!!phone && byUser.phone === phone);
@@ -1324,34 +1781,41 @@ function checkAvailability(body) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DELETE ACCOUNT
+// DELETE, PUSH, SESSIONS, USERS
 // ═══════════════════════════════════════════════════════════════
 function deleteAccount(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
-    if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
-    const existing = findUserByPhone(phone);
-    if (!existing) return jsonResponse({ ok: false, error: 'not_found', message: 'No account for +91 ' + phone });
-    const suppliedUid = String(body.uid || '').trim();
-    if (existing.uid) {
-        if (!suppliedUid) return jsonResponse({ ok: false, error: 'uid_required' });
-        if (suppliedUid !== existing.uid) return jsonResponse({ ok: false, error: 'uid_mismatch' });
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    const token = String(body.token || '').trim();
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!token) return jsonResponse({ ok: false, error: 'no_token', message: 'Session token required.' });
+    if (!verifySessionForPhone_(phone, token)) {
+        return jsonResponse({ ok: false, error: 'invalid_session',
+            message: 'Please log in again to delete your account.' });
     }
 
-    const usersDeleted    = deleteRowsWhere_(REGISTRATIONS_SHEET, 2, phone);
-    const convDeleted     = deleteRowsWhere_(CONVERSATIONS_SHEET, 1, phone);
-    const tokensDeleted   = deleteRowsWhere_(PUSH_TOKENS_SHEET, 1, phone);
-    const sessionsDeleted = deleteRowsWhere_(SESSIONS_SHEET, 0, phone);
+    const existing = findUserByPhone(phone);
+    if (!existing) return jsonResponse({ ok: false, error: 'not_found' });
+
+    const suppliedUid = String(body.uid || '').trim();
+    if (existing.uid && suppliedUid && suppliedUid !== existing.uid) {
+        return jsonResponse({ ok: false, error: 'uid_mismatch', message: 'Verification failed.' });
+    }
+
+    const usersDeleted    = deleteRowsWhere_(REGISTRATIONS_SHEET, 2, existing.phone);
+    const convDeleted     = deleteRowsWhere_(CONVERSATIONS_SHEET, 1, existing.phone);
+    const tokensDeleted   = deleteRowsWhere_(PUSH_TOKENS_SHEET, 1, existing.phone);
+    const sessionsDeleted = deleteRowsWhere_(SESSIONS_SHEET, 0, existing.phone);
 
     try {
         const props = PropertiesService.getScriptProperties();
-        ['otp_','otprate_','otpok_','otpemail_','pwreset_','pwresetrate_','resendrate_','totpfail_','totpunlock_','totpunlockrate_'].forEach(function (prefix) {
-            props.deleteProperty(prefix + phone);
-        });
+        ['otp_','otprate_','otpok_','otpemail_','pwreset_','pwresetrate_','resendrate_',
+         'totpfail_','totpunlock_','totpunlockrate_','pendingoffset_','welcomeletter_sent_']
+        .forEach(function (prefix) { props.deleteProperty(prefix + existing.phone); });
     } catch (e) {}
 
     notifyAdmin_('🗑️ Account deleted: ' + (existing.name || phone), '🗑️ Account deleted', '#ef4444',
-        existing.name, existing.username, phone, existing.email, '');
+        existing.name, existing.username, existing.phone, existing.email, '');
 
     return jsonResponse({
         ok: true, version: CODE_VERSION,
@@ -1371,13 +1835,10 @@ function deleteRowsWhere_(sheetName, colIdx, value) {
     return n;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// PUSH TOKENS
-// ═══════════════════════════════════════════════════════════════
 function registerPushToken(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone    = String(body.phone || '').trim();
-    const token    = String(body.token || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
+    const token = String(body.token || '').trim();
     const platform = String(body.platform || 'web').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!token || token.length < 20) return jsonResponse({ ok: false, error: 'invalid_token' });
@@ -1394,7 +1855,7 @@ function registerPushToken(body) {
 
 function removePushToken(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const deleted = deleteRowsWhere_(PUSH_TOKENS_SHEET, 1, phone);
     return jsonResponse({ ok: true, version: CODE_VERSION, removed: deleted });
@@ -1407,28 +1868,27 @@ function readPushTokens() {
         return { timestamp: toMillis_(r[0]), phone: String(r[1] || ''), token: String(r[2] || ''), platform: String(r[3] || 'web') };
     });
 }
-
 function countPushTokens() { try { return readPushTokens().length; } catch (e) { return 0; } }
 
-// ═══════════════════════════════════════════════════════════════
-// SESSIONS
-// ═══════════════════════════════════════════════════════════════
 function registerSession(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone  = String(body.phone || '').trim();
+    const phone  = normalizePhone_(body.countryCode, body.phone);
     const token  = String(body.token || '').trim();
     const device = String(body.device || 'web').trim().slice(0, 120);
-    if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     if (!token || token.length < 16) return jsonResponse({ ok: false, error: 'invalid_token' });
+
     const sheet = getSheet(SESSIONS_SHEET);
     if (!sheet) return jsonResponse({ ok: false, error: 'no_sessions_sheet' });
+
     const hash = hashCode_(phone, token);
-    const now = Date.now();
+    const now  = Date.now();
     const expiresIso = new Date(now + SESSION_TTL_MS).toISOString();
-    const nowIso = new Date(now).toISOString();
+    const nowIso     = new Date(now).toISOString();
+
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
-        if (String(data[i][1]) === hash) {
+        if (String(data[i][0]) === phone && String(data[i][1]) === hash) {
             sheet.getRange(i + 1, 5, 1, 2).setValues([[nowIso, expiresIso]]);
             return jsonResponse({ ok: true, version: CODE_VERSION, refreshed: true });
         }
@@ -1439,7 +1899,7 @@ function registerSession(body) {
 
 function verifySession(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     if (!PHONE_LOOSE.test(phone) || !token) return jsonResponse({ ok: false, error: 'invalid_request' });
     const sheet = getSheet(SESSIONS_SHEET);
@@ -1451,6 +1911,26 @@ function verifySession(body) {
             const expires = toMillis_(data[i][5]);
             if (expires && Date.now() > expires) { sheet.deleteRow(i + 1); return jsonResponse({ ok: false, error: 'expired' }); }
             sheet.getRange(i + 1, 5).setValue(new Date().toISOString());
+
+            withLock_(function () {
+                try {
+                    const props = PropertiesService.getScriptProperties();
+                    const sentKey = 'welcomeletter_sent_' + phone;
+                    if (!props.getProperty(sentKey)) {
+                        const user = findUserByPhone(phone);
+                        if (user && user.email && EMAIL_RE.test(user.email)) {
+                            const ok = sendWelcomeLetterEmail(user.email, user.name, phone);
+                            if (ok) {
+                                props.setProperty(sentKey, String(Date.now()));
+                                console.log('💌 Welcome letter sent on first login to ' + user.email);
+                            }
+                        } else {
+                            props.setProperty(sentKey, String(Date.now()));
+                        }
+                    }
+                } catch (e) { console.error('First-login welcome failed:', e); }
+            });
+
             return jsonResponse({ ok: true, version: CODE_VERSION, valid: true });
         }
     }
@@ -1459,7 +1939,7 @@ function verifySession(body) {
 
 function removeSession(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    const phone = String(body.phone || '').trim();
+    const phone = normalizePhone_(body.countryCode, body.phone);
     const token = String(body.token || '').trim();
     if (!PHONE_LOOSE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     const sheet = getSheet(SESSIONS_SHEET);
@@ -1487,7 +1967,6 @@ function readSessions() {
         };
     }).filter(function (s) { return s.phone; });
 }
-
 function countSessions() { try { return readSessions().length; } catch (e) { return 0; } }
 
 function purgeExpiredSessions_() {
@@ -1503,9 +1982,6 @@ function purgeExpiredSessions_() {
     return n;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// USERS
-// ═══════════════════════════════════════════════════════════════
 function readUsers() {
     const sheet = getSheet(REGISTRATIONS_SHEET);
     if (!sheet) return [];
@@ -1513,11 +1989,11 @@ function readUsers() {
         return {
             name: r[0] || '', username: r[1] || '', phone: String(r[2] || ''), email: String(r[3] || ''),
             createdAt: toMillis_(r[4]), lastLogin: toMillis_(r[5]), uid: r[6] || '',
-            status: String(r[7] || 'active'), authMethod: String(r[8] || 'totp')
+            status: String(r[7] || 'active'), authMethod: String(r[8] || 'totp'),
+            countryCode: String(r[11] || '91')
         };
     }).filter(function (u) { return u.phone; });
 }
-
 function countUsers() { try { return readUsers().length; } catch (e) { return 0; } }
 
 function dedupeAllRegistrations_() {
@@ -1536,9 +2012,6 @@ function dedupeAllRegistrations_() {
     return toDelete.length;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// BUSINESS / KNOWLEDGE
-// ═══════════════════════════════════════════════════════════════
 function readBusiness() {
     const sheet = getSheet(BUSINESS_SHEET);
     if (!sheet) return {};
@@ -1560,9 +2033,6 @@ function readKnowledge() {
     }).filter(function (k) { return k.question && k.answer; });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CONVERSATIONS
-// ═══════════════════════════════════════════════════════════════
 function logConversation(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, version: CODE_VERSION, error: 'invalid secret' });
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -1570,9 +2040,6 @@ function logConversation(body) {
     if (!sheet) {
         sheet = ss.insertSheet(CONVERSATIONS_SHEET);
         sheet.appendRow(['Timestamp', 'Session ID', 'Email', 'Query', 'Answer', 'Feedback', 'Source']);
-    } else {
-        const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-        if (headers.indexOf('Source') === -1) sheet.getRange(1, headers.length + 1).setValue('Source');
     }
     sheet.appendRow([
         new Date().toISOString(),
@@ -1582,17 +2049,15 @@ function logConversation(body) {
     return jsonResponse({ ok: true, version: CODE_VERSION, row: sheet.getLastRow() });
 }
 
-function rowToConversation_(r) {
-    return {
-        timestamp: toMillis_(r[0]), sessionId: String(r[1] || ''), email: String(r[2] || ''),
-        query: String(r[3] || ''), answer: String(r[4] || ''), feedback: String(r[5] || ''), source: String(r[6] || '')
-    };
-}
-
 function readConversations() {
     const sheet = getSheet(CONVERSATIONS_SHEET);
     if (!sheet) return [];
-    return sheet.getDataRange().getValues().slice(1).map(rowToConversation_);
+    return sheet.getDataRange().getValues().slice(1).map(function (r) {
+        return {
+            timestamp: toMillis_(r[0]), sessionId: String(r[1] || ''), email: String(r[2] || ''),
+            query: String(r[3] || ''), answer: String(r[4] || ''), feedback: String(r[5] || ''), source: String(r[6] || '')
+        };
+    });
 }
 
 function readUserConversations(phone, limit) {
@@ -1602,7 +2067,7 @@ function readUserConversations(phone, limit) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// EMAIL OTP (invite overlay)
+// OTP HELPERS
 // ═══════════════════════════════════════════════════════════════
 function hashCode_(phone, code) {
     const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, SECRET + '|' + phone + '|' + code);
@@ -1620,11 +2085,15 @@ function safeMailQuota_() {
 }
 
 function sendOtp(body) {
-    if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret', message: 'Server secret mismatch.' });
-    const phone = String(body.phone || '').trim();
+    if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
+
+    const country = String(body.countryCode || '91').replace(/\D/g, '');
+    const pv = validatePhoneForCountry_(country, body.phone);
+    if (!pv.ok) return jsonResponse({ ok: false, error: pv.error, message: pv.message });
+    const phone = pv.full;
+
     const email = String(body.email || '').trim();
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Enter a valid 10-digit Indian mobile (starts 6–9).' });
-    if (!EMAIL_RE.test(email)) return jsonResponse({ ok: false, error: 'invalid_email', message: 'Enter a valid email.' });
+    if (!EMAIL_RE.test(email)) return jsonResponse({ ok: false, error: 'invalid_email' });
 
     const props   = PropertiesService.getScriptProperties();
     const rateKey = 'otprate_' + phone;
@@ -1640,10 +2109,7 @@ function sendOtp(body) {
             const s = Math.ceil((OTP_MIN_GAP_MS - (now - rate.lastAt)) / 1000);
             return { ok: false, error: 'too_soon', message: 'Please wait ' + s + 's.' };
         }
-        if (rate.count >= OTP_RATE_PER_HR) {
-            const m = Math.ceil((rate.resetAt - now) / 60000);
-            return { ok: false, error: 'too_many_requests', message: 'Try again in ' + m + ' min.' };
-        }
+        if (rate.count >= OTP_RATE_PER_HR) return { ok: false, error: 'too_many_requests' };
         props.setProperty('otp_' + phone, JSON.stringify({
             hash: hashCode_(phone, code), email: email, expiresAt: expiresAt, tries: 0, createdAt: now
         }));
@@ -1654,63 +2120,21 @@ function sendOtp(body) {
     });
     if (!gate.ok) return jsonResponse(gate);
 
-    let logRowIndex = -1;
-    try {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        let sheet = ss.getSheetByName(OTP_SHEET);
-        if (!sheet) {
-            sheet = ss.insertSheet(OTP_SHEET);
-            sheet.getRange(1, 1, 1, OTP_HEADERS.length).setValues([OTP_HEADERS]);
-        }
-        sheet.appendRow([new Date().toISOString(), phone, email, '••••••', new Date(expiresAt).toISOString(), 'pending', '', '']);
-        logRowIndex = sheet.getLastRow();
-    } catch (e) {}
-
-    let emailStatus = 'sent';
-    let emailError  = '';
     try {
         MailApp.sendEmail({
             to: email,
             subject: '🔐 Your Sandesai verification code',
-            htmlBody:
-                '<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#0f0d24;color:#eef0f5;border-radius:16px;">' +
-                    '<div style="text-align:center;margin-bottom:20px;">' +
-                        '<img src="' + LOGO_URL + '" alt="Sandesai" width="72" height="72" style="border-radius:50%;border:2px solid rgba(139,92,246,0.4);display:block;margin:0 auto 12px;" />' +
-                        '<h1 style="font-size:22px;margin:0;color:#a78bfa;">Sandesai</h1>' +
-                    '</div>' +
-                    '<p style="color:#a5b3d0;font-size:14px;margin:0 0 20px;">Use this code to verify your account:</p>' +
-                    '<div style="font-size:36px;font-weight:700;letter-spacing:8px;text-align:center;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);border-radius:12px;padding:20px 12px;color:#fff;margin:0 0 20px;">' + code + '</div>' +
-                    '<p style="color:#7a89a8;font-size:13px;margin:0;">This code expires in <b style="color:#c4b5fd;">10 minutes</b>.</p>' +
-                '</div>',
-            body: 'Your Sandesai verification code is ' + code + '.'
+            htmlBody: '<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:auto;padding:32px 24px;background:#0f0d24;color:#eef0f5;border-radius:16px;">' +
+                        '<img src="' + LOGO_URL + '" width="72" height="72" style="border-radius:50%;display:block;margin:0 auto 12px;" />' +
+                        '<h1 style="font-size:22px;text-align:center;color:#a78bfa;">Sandesai</h1>' +
+                        '<div style="font-size:36px;font-weight:700;letter-spacing:8px;text-align:center;background:rgba(139,92,246,0.15);border-radius:12px;padding:20px 12px;color:#fff;margin:20px 0;-webkit-user-select:all;user-select:all;cursor:pointer;">' + code + '</div>' +
+                        '<p style="color:#7a89a8;font-size:13px;text-align:center;">This code expires in 10 minutes.</p>' +
+                        '<div style="text-align:center;margin-top:20px;"><a href="' + APP_URL + '" style="display:inline-block;padding:14px 30px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-weight:700;text-decoration:none;">Open Sandesai →</a></div>' +
+                      '</div>'
         });
     } catch (e) {
-        emailStatus = 'failed';
-        emailError  = String(e).slice(0, 250);
-    }
-
-    try {
-        if (logRowIndex > 0) {
-            const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(OTP_SHEET);
-            sheet.getRange(logRowIndex, 6).setValue(emailStatus);
-            sheet.getRange(logRowIndex, 7).setValue(emailError);
-        }
-    } catch (e) {}
-
-    if (emailStatus !== 'sent') {
-        withLock_(function () {
-            try {
-                const raw = props.getProperty(rateKey);
-                if (raw) {
-                    const rate = JSON.parse(raw);
-                    rate.count = Math.max(0, rate.count - 1);
-                    rate.lastAt = 0;
-                    props.setProperty(rateKey, JSON.stringify(rate));
-                }
-                props.deleteProperty('otp_' + phone);
-            } catch (e) {}
-        });
-        return jsonResponse({ ok: false, error: 'email_failed', message: 'Could not send email.' });
+        props.deleteProperty('otp_' + phone);
+        return jsonResponse({ ok: false, error: 'email_failed' });
     }
 
     const parts = email.split('@');
@@ -1720,20 +2144,23 @@ function sendOtp(body) {
 
 function verifyOtp(body) {
     if (SECRET && body.secret !== SECRET) return jsonResponse({ ok: false, error: 'invalid secret' });
-    return _verifyOtpCore(String(body.phone || '').trim(), String(body.code || '').trim());
+    return _verifyOtpCore(
+        normalizePhone_(body.countryCode, body.phone),
+        String(body.code || '').trim()
+    );
 }
 
 function _verifyOtpCore(phone, code) {
-    if (!PHONE_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone', message: 'Invalid phone number.' });
+    if (!PHONE_E164_RE.test(phone)) return jsonResponse({ ok: false, error: 'invalid_phone' });
     return withLock_(function () {
         const props = PropertiesService.getScriptProperties();
         const key = 'otp_' + phone;
         const raw = props.getProperty(key);
-        if (!raw) return jsonResponse({ ok: false, error: 'no_otp', message: 'Please request a new code.' });
+        if (!raw) return jsonResponse({ ok: false, error: 'no_otp', message: 'Request a new code.' });
         let otp;
         try { otp = JSON.parse(raw); }
         catch (e) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'corrupt_otp' }); }
-        if (Date.now() > otp.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired', message: 'Code expired.' }); }
+        if (Date.now() > otp.expiresAt) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'expired' }); }
         if (otp.hash !== hashCode_(phone, code)) {
             otp.tries = (otp.tries || 0) + 1;
             if (otp.tries >= OTP_MAX_TRIES) { props.deleteProperty(key); return jsonResponse({ ok: false, error: 'too_many_attempts' }); }
@@ -1769,7 +2196,7 @@ function consumeOtpVerified_(phone) {
         const raw = props.getProperty(key);
         if (!raw) return false;
         const valid = Date.now() < Number(raw);
-        if (!valid) props.deleteProperty(key);
+        props.deleteProperty(key);
         return valid;
     });
 }
@@ -1802,6 +2229,8 @@ function cleanupOtps() {
                 if (JSON.parse(all[k]).resetAt < now) { props.deleteProperty(k); cleaned++; }
             } else if (k.indexOf('pwreset_') === 0 || k.indexOf('totpunlock_') === 0) {
                 if (JSON.parse(all[k]).expiresAt < now) { props.deleteProperty(k); cleaned++; }
+            } else if (k.indexOf('pendingoffset_') === 0) {
+                if (JSON.parse(all[k]).expiresAt < now) { props.deleteProperty(k); cleaned++; }
             } else if (k.indexOf('totpfail_') === 0) {
                 const s = JSON.parse(all[k]);
                 if (s.lockedUntil && s.lockedUntil < now && now - s.firstFailAt > TOTP_FAIL_WINDOW) {
@@ -1814,6 +2243,9 @@ function cleanupOtps() {
     return cleaned;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MANUAL HELPERS
+// ═══════════════════════════════════════════════════════════════
 function authTest() {
     MailApp.sendEmail(Session.getActiveUser().getEmail(), 'Sandesai mail test', 'MailApp authorized. Quota: ' + safeMailQuota_());
     Logger.log('Mail OK. Quota: ' + safeMailQuota_());
@@ -1823,6 +2255,13 @@ function runMigrationNow() {
     resetSchemaFlag();
     ensureSchema_();
     Logger.log('Migration complete. Users: ' + countUsers());
+}
+
+function forceSendWelcomeNow(phone) {
+    const user = findUserByPhone(String(phone || '').trim());
+    if (!user || !user.email) { Logger.log('No user/email for ' + phone); return; }
+    const ok = sendWelcomeLetterEmail(user.email, user.name, user.phone);
+    Logger.log('Force-sent welcome letter: ' + ok);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1856,5 +2295,13 @@ function getSheet(name) {
 }
 
 function jsonResponse(obj) {
-    return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+    return ContentService
+        .createTextOutput(JSON.stringify(obj))
+        .setMimeType(ContentService.MimeType.JSON)
+        .setHeaders({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
 }
